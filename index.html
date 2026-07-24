@@ -666,11 +666,14 @@ function aggregate(){
   const C = CONFIG.COLS;
   const byUF = {}, byCarrier = {};
   let onTime=0, late=0, diasSum=0, diasN=0;
+  const nfSet = new Set(); let semNf = 0;   // total de pedidos = contagem única por NF
   FILTERED.forEach(r=>{
     const uf = toUF(r[C.uf]);
     const st = classifyStatus(r[C.status]);
     const dias = num(r[C.dias]);
     const carrier = (r[C.transportadora]||"").toString().trim() || "—";
+    const nf = (r[C.nf]||"").toString().trim();
+    if(nf) nfSet.add(nf); else semNf++;     // sem NF → cada linha conta como 1
     if(st==="ontime") onTime++; else if(st==="late") late++;
     if(isFinite(dias)){ diasSum+=dias; diasN++; }
     if(uf){
@@ -681,7 +684,7 @@ function aggregate(){
     const cc = byCarrier[carrier] || (byCarrier[carrier]={count:0,dSum:0,dN:0});
     cc.count++; if(isFinite(dias)){ cc.dSum+=dias; cc.dN++; }
   });
-  return { byUF, byCarrier, onTime, late, diasSum, diasN, total:FILTERED.length };
+  return { byUF, byCarrier, onTime, late, diasSum, diasN, total:FILTERED.length, totalUnique:nfSet.size+semNf };
 }
 
 /* ---------- render ---------- */
@@ -692,7 +695,7 @@ function render(){
   document.getElementById("grid").style.display="grid";
   renderKpis(A); renderMap(A); renderSla(A); renderCarriers(A); renderCarrierTrend(); renderPareto(); renderMatrix(); renderCep(); renderDeliveryMap(); renderTransito();
   document.getElementById("meta").innerHTML =
-    '<b>'+fmtInt(A.total)+'</b> pedidos no filtro · atualizado '+new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+    '<b>'+fmtInt(A.totalUnique)+'</b> pedidos no filtro · atualizado '+new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 }
 function renderKpis(A){
   const slaBase = A.onTime + A.late;
@@ -701,7 +704,7 @@ function renderKpis(A){
   const k = slaClass(slaPct);
   document.getElementById("kpis").innerHTML = `
     <div class="kpi"><div class="rail"></div><div class="cap"><span class="eyebrow">Pedidos</span></div>
-      <div class="val num">${fmtInt(A.total)}</div><div class="sub">no período e filtros ativos</div></div>
+      <div class="val num">${fmtInt(A.totalUnique)}</div><div class="sub">no período e filtros ativos</div></div>
     <div class="kpi k-${k}"><div class="rail"></div><div class="cap"><span class="eyebrow">SLA · no prazo</span><span class="dot ${k}"></span></div>
       <div class="val num">${fmtPct(slaPct)}</div><div class="sub">${fmtInt(A.onTime)} no prazo · ${fmtInt(A.late)} atrasados</div></div>
     <div class="kpi"><div class="rail"></div><div class="cap"><span class="eyebrow">Média de dias</span></div>
@@ -1291,7 +1294,10 @@ document.getElementById("btnSource").onclick = openSetup;
 document.getElementById("btnLoad").onclick = ()=>{ const u=document.getElementById("urlInput").value.trim(); if(u) smartLoad(u); };
 document.getElementById("urlInput").addEventListener("keydown", e=>{ if(e.key==="Enter"){ const u=e.target.value.trim(); if(u) smartLoad(u); } });
 
-if(CONFIG.API_URL && CONFIG.API_URL.trim()){ loadFromApi(CONFIG.API_URL.trim()); }
+// Override opcional da fonte de dados via querystring (?src=URL) — útil p/ testar local com mock.
+const SRC_OVERRIDE = new URLSearchParams(location.search).get("src");
+if(SRC_OVERRIDE && SRC_OVERRIDE.trim()){ smartLoad(SRC_OVERRIDE.trim()); }
+else if(CONFIG.API_URL && CONFIG.API_URL.trim()){ loadFromApi(CONFIG.API_URL.trim()); }
 else if(CONFIG.CSV_URL && CONFIG.CSV_URL.trim()){ loadData(CONFIG.CSV_URL.trim()); }
 else { openSetup(); }
 </script>
