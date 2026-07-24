@@ -320,7 +320,10 @@
     <section class="panel full">
       <div class="panel-head">
         <h2>Motivo dos atrasos</h2>
-        <span class="hint">Pareto · barras = ocorrências, linha = % acumulado</span>
+        <div style="display:flex; align-items:center; gap:10px; margin-left:auto">
+          <span class="hint">Pareto · barras = NFs únicas, linha = % acumulado</span>
+          <div class="ms" id="msMotivo" style="min-width:200px"></div>
+        </div>
       </div>
       <div class="panel-body">
         <div class="trend-legend" id="paretoLegend"></div>
@@ -478,8 +481,8 @@ const VALID_UF = new Set(Object.keys(BR_MAP.states));
 let RAW = [];        // linhas cruas (arrays por índice)
 let RAW_T = [];      // pedidos em trânsito (planilha Rastreamento)
 let FILTERED = [];
-const F = { dStart:null, dEnd:null, semanas:new Set(), transp:new Set() };
-let semanaOptions = [], transpOptions = [];
+const F = { dStart:null, dEnd:null, semanas:new Set(), transp:new Set(), motivos:new Set() };
+let semanaOptions = [], transpOptions = [], motivoOptions = [];
 
 /* ---------- helpers ---------- */
 function normalize(s){ return (s||"").toString().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase(); }
@@ -582,16 +585,18 @@ function loadData(url){
 /* ---------- filters ---------- */
 function initFilters(){
   const C = CONFIG.COLS;
-  const semanaSet = new Set(), transpSet = new Set();
+  const semanaSet = new Set(), transpSet = new Set(), motivoSet = new Set();
   let minD=null, maxD=null;
   RAW.forEach(r => {
     const sem = (r[C.semana]||"").toString().trim(); if(sem) semanaSet.add(sem);
     const tr  = (r[C.transportadora]||"").toString().trim(); if(tr) transpSet.add(tr);
+    const mo  = (r[C.motivo]||"").toString().trim(); if(mo) motivoSet.add(mo);
     const d = parseDate(r[C.dataEntrega]);
     if(d){ if(!minD||d<minD) minD=d; if(!maxD||d>maxD) maxD=d; }
   });
   semanaOptions = [...semanaSet].sort((a,b)=> naturalCmp(a,b));
   transpOptions = [...transpSet].sort((a,b)=> a.localeCompare(b,"pt-BR"));
+  motivoOptions = [...motivoSet].sort((a,b)=> a.localeCompare(b,"pt-BR"));
 
   const s=document.getElementById("dStart"), e=document.getElementById("dEnd");
   s.value = toISO(minD); e.value = toISO(maxD);
@@ -601,13 +606,15 @@ function initFilters(){
 
   buildMulti("msSemana", "semana(s)", semanaOptions, F.semanas);
   buildMulti("msTransp", "transportadora(s)", transpOptions, F.transp);
+  buildMulti("msMotivo", "motivo(s)", motivoOptions, F.motivos, renderPareto);   // só recalcula o Pareto
 
   document.getElementById("btnClear").onclick = ()=>{
-    F.semanas.clear(); F.transp.clear();
+    F.semanas.clear(); F.transp.clear(); F.motivos.clear();
     s.value=toISO(minD); e.value=toISO(maxD);
     F.dStart = minD?dOnly(minD):null; F.dEnd = maxD?dOnly(maxD):null;
     buildMulti("msSemana","semana(s)",semanaOptions,F.semanas);
     buildMulti("msTransp","transportadora(s)",transpOptions,F.transp);
+    buildMulti("msMotivo","motivo(s)",motivoOptions,F.motivos,renderPareto);
     render();
   };
   document.getElementById("filters").style.display="flex";
@@ -619,7 +626,8 @@ function naturalCmp(a,b){
   }
   return a.localeCompare(b,undefined,{numeric:true});
 }
-function buildMulti(id, noun, options, selectedSet){
+function buildMulti(id, noun, options, selectedSet, onChange){
+  const apply = onChange || render;
   const host = document.getElementById(id);
   host.innerHTML = "";
   const btn = document.createElement("button"); btn.className="ms-btn"; btn.type="button";
@@ -631,13 +639,13 @@ function buildMulti(id, noun, options, selectedSet){
   all.innerHTML = '<input type="checkbox"> <span>Selecionar todas</span>';
   const allCb = all.querySelector("input");
   allCb.checked = selectedSet.size===0;
-  all.onclick = e=>{ e.preventDefault(); selectedSet.clear(); panel.querySelectorAll(".ms-opt:not(.ms-all) input").forEach(c=>c.checked=false); allCb.checked=true; updLabel(); render(); };
+  all.onclick = e=>{ e.preventDefault(); selectedSet.clear(); panel.querySelectorAll(".ms-opt:not(.ms-all) input").forEach(c=>c.checked=false); allCb.checked=true; updLabel(); apply(); };
   panel.appendChild(all);
 
   options.forEach(opt=>{
     const l=document.createElement("label"); l.className="ms-opt";
     const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=selectedSet.has(opt);
-    cb.onchange=()=>{ cb.checked?selectedSet.add(opt):selectedSet.delete(opt); allCb.checked=selectedSet.size===0; updLabel(); render(); };
+    cb.onchange=()=>{ cb.checked?selectedSet.add(opt):selectedSet.delete(opt); allCb.checked=selectedSet.size===0; updLabel(); apply(); };
     const sp=document.createElement("span"); sp.textContent=opt;
     l.appendChild(cb); l.appendChild(sp); panel.appendChild(l);
   });
@@ -712,6 +720,20 @@ function renderKpis(A){
     <div class="kpi"><div class="rail"></div><div class="cap"><span class="eyebrow">Estados atendidos</span></div>
       <div class="val num">${fmtInt(Object.keys(A.byUF).length)}<small>/27</small></div><div class="sub">com pedidos no período</div></div>`;
 }
+const UF_CENTROID = {};   // cache do centro de cada UF (para posicionar a sigla)
+function ufCentroid(uf, d){
+  if(UF_CENTROID[uf]) return UF_CENTROID[uf];
+  const nums = (d.match(/-?\d+(?:\.\d+)?/g)||[]).map(Number);
+  const pts=[]; for(let i=0;i+1<nums.length;i+=2) pts.push([nums[i],nums[i+1]]);
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  pts.forEach(([x,y])=>{ if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; });
+  let a=0,cx=0,cy=0;
+  for(let i=0;i<pts.length;i++){ const [x0,y0]=pts[i], [x1,y1]=pts[(i+1)%pts.length]; const cr=x0*y1-x1*y0; a+=cr; cx+=(x0+x1)*cr; cy+=(y0+y1)*cr; }
+  a*=0.5;
+  let c = Math.abs(a)>1e-6 ? [cx/(6*a), cy/(6*a)] : [(minX+maxX)/2,(minY+maxY)/2];
+  if(c[0]<minX||c[0]>maxX||c[1]<minY||c[1]>maxY) c=[(minX+maxX)/2,(minY+maxY)/2];   // fallback: centro do bounding box
+  UF_CENTROID[uf]=c; return c;
+}
 function renderMap(A){
   const counts = Object.values(A.byUF).map(u=>u.count);
   const max = counts.length ? Math.max(...counts) : 0;
@@ -721,8 +743,17 @@ function renderMap(A){
     const fill = u ? lerpColor(MAP_LO, MAP_HI, t) : "var(--map-lo)";
     return `<path data-uf="${uf}" d="${o.d}" style="fill:${fill}"></path>`;
   }).join("");
+  const labels = Object.entries(BR_MAP.states).map(([uf,o])=>{
+    const u = A.byUF[uf];
+    const t = (max>0 && u) ? Math.pow(u.count/max, .72) : 0;
+    const [lx,ly] = ufCentroid(uf, o.d);
+    const light = t>0.55;                         // estado escuro → sigla clara, e vice-versa
+    const col = light ? "#FFFFFF" : "#334155";
+    const halo = light ? "rgba(0,0,0,.28)" : "rgba(255,255,255,.75)";
+    return `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="13" font-weight="700" fill="${col}" text-anchor="middle" dominant-baseline="central" font-family="'Space Grotesk',sans-serif" style="pointer-events:none; paint-order:stroke; stroke:${halo}; stroke-width:2.5px; stroke-linejoin:round">${uf}</text>`;
+  }).join("");
   const wrap = document.getElementById("mapWrap");
-  wrap.innerHTML = `<svg viewBox="${BR_MAP.viewBox}" role="img" aria-label="Mapa de densidade de pedidos por estado">${paths}</svg>`;
+  wrap.innerHTML = `<svg viewBox="${BR_MAP.viewBox}" role="img" aria-label="Mapa de densidade de pedidos por estado">${paths}${labels}</svg>`;
   const tip = document.getElementById("tooltip");
   wrap.querySelectorAll("path").forEach(p=>{
     const uf = p.dataset.uf, u = A.byUF[uf];
@@ -866,7 +897,11 @@ function renderPareto(){
     cnt[m]=(cnt[m]||0)+1;
   });
   const host=document.getElementById("paretoChart"), legend=document.getElementById("paretoLegend");
-  const items=Object.entries(cnt).map(([motivo,c])=>({motivo,c})).sort((a,b)=>b.c-a.c);
+  // filtro de motivos (só afeta este gráfico) — vazio = todos; recalcula sozinho o acumulado
+  const selMot = F.motivos;
+  const items=Object.entries(cnt)
+    .filter(([motivo])=> selMot.size===0 || selMot.has(motivo))
+    .map(([motivo,c])=>({motivo,c})).sort((a,b)=>b.c-a.c);
   if(!items.length){ host.innerHTML=""; legend.innerHTML='<span style="color:var(--muted);font-size:12px">Sem motivos de atraso no filtro atual.</span>'; return; }
   const total=items.reduce((s,x)=>s+x.c,0); let acc=0; items.forEach(x=>{ acc+=x.c; x.cum=acc/total*100; });
 
@@ -893,13 +928,13 @@ function renderPareto(){
   items.forEach((x,k)=>{ svg+=`<rect class="pareto-hit" data-k="${k}" x="${(ml+slot*k).toFixed(1)}" y="${mt}" width="${slot.toFixed(1)}" height="${ph}" fill="transparent"/>`; });
   svg+=`</svg>`;
   host.innerHTML=svg;
-  legend.innerHTML=`<div class="it"><span class="ln" style="background:${BLUE}; height:12px; width:12px; border-radius:3px"></span>Ocorrências (atrasos)</div>
+  legend.innerHTML=`<div class="it"><span class="ln" style="background:${BLUE}; height:12px; width:12px; border-radius:3px"></span>NFs únicas (atrasos)</div>
     <div class="it"><span class="ln" style="background:${RED}"></span>% acumulado</div>`;
   const tip=document.getElementById("tooltip");
   host.querySelectorAll(".pareto-hit").forEach(el=>{
     el.addEventListener("mousemove", ev=>{ const x=items[+el.dataset.k];
       tip.innerHTML=`<div class="tt-uf"><span>${esc(x.motivo)}</span></div>
-        <div class="tt-row"><span>Ocorrências</span><b>${fmtInt(x.c)}</b></div>
+        <div class="tt-row"><span>NFs únicas</span><b>${fmtInt(x.c)}</b></div>
         <div class="tt-row"><span>% do total</span><b>${fmtPct(x.c/total*100)}</b></div>
         <div class="tt-row"><span>Acumulado</span><b>${fmtPct(x.cum)}</b></div>`;
       tip.style.left=Math.min(ev.clientX+14,innerWidth-220)+"px"; tip.style.top=(ev.clientY+14)+"px"; tip.classList.add("show");
