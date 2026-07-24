@@ -1031,7 +1031,10 @@ document.getElementById("btnSource").onclick = openSetup;
 document.getElementById("btnLoad").onclick = ()=>{ const u=document.getElementById("urlInput").value.trim(); if(u) smartLoad(u); };
 document.getElementById("urlInput").addEventListener("keydown", e=>{ if(e.key==="Enter"){ const u=e.target.value.trim(); if(u) smartLoad(u); } });
 
-if(CONFIG.API_URL && CONFIG.API_URL.trim()){ loadFromApi(CONFIG.API_URL.trim()); }
+// Override opcional da fonte de dados via querystring (?src=URL) — útil p/ testar local com mock.
+const SRC_OVERRIDE = new URLSearchParams(location.search).get("src");
+if(SRC_OVERRIDE && SRC_OVERRIDE.trim()){ smartLoad(SRC_OVERRIDE.trim()); }
+else if(CONFIG.API_URL && CONFIG.API_URL.trim()){ loadFromApi(CONFIG.API_URL.trim()); }
 else if(CONFIG.CSV_URL && CONFIG.CSV_URL.trim()){ loadData(CONFIG.CSV_URL.trim()); }
 else { openSetup(); }
 </script>

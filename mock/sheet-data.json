@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "count": 16,
+  "range": "MOCK!A:X",
+  "updated": "2026-07-24T12:00:00.000Z",
+  "_comment": "Dados FICTÍCIOS para teste local. Colunas: A0 dataEntrega, B1 previsao, D3 dataCriacao, J9 status, K10 NF, L11 transportadora, R17 motivo, S18 uf, T19 regiao, U20 semana, V21 mes, W22 dias, X23 cep. Motivos com NF repetida servem para validar a contagem ÚNICA por NF.",
+  "rows": [
+    ["2026-07-05","2026-07-04","","2026-07-01","","","","","","Atrasado","1001","Transportadora A","","","","","","Endereço incorreto","SP","Sudeste","27","Julho","4","01310-000"],
+    ["2026-07-05","2026-07-04","","2026-07-01","","","","","","Atrasado","1001","Transportadora A","","","","","","Endereço incorreto","SP","Sudeste","27","Julho","4","01310-000"],
+    ["2026-07-06","2026-07-05","","2026-07-02","","","","","","Atrasado","1002","Transportadora B","","","","","","Endereço incorreto","RJ","Sudeste","27","Julho","3","20040-000"],
+    ["2026-07-07","2026-07-05","","2026-07-02","","","","","","Atrasado","1003","Transportadora A","","","","","","Avaria na entrega","MG","Sudeste","28","Julho","5","30110-000"],
+    ["2026-07-08","2026-07-06","","2026-07-03","","","","","","Atrasado","1004","Transportadora B","","","","","","Avaria na entrega","SP","Sudeste","28","Julho","4","13010-000"],
+    ["2026-07-09","2026-07-07","","2026-07-04","","","","","","Atrasado","1005","Transportadora C","","","","","","Avaria na entrega","PR","Sul","28","Julho","6","80010-000"],
+    ["2026-07-10","2026-07-08","","2026-07-05","","","","","","Atrasado","1006","Transportadora A","","","","","","Ausência do destinatário","SP","Sudeste","28","Julho","7","01310-000"],
+    ["2026-07-10","2026-07-08","","2026-07-05","","","","","","Atrasado","1006","Transportadora A","","","","","","Ausência do destinatário","SP","Sudeste","28","Julho","7","01310-000"],
+    ["2026-07-11","2026-07-08","","2026-07-05","","","","","","Atrasado","1006","Transportadora A","","","","","","Ausência do destinatário","SP","Sudeste","28","Julho","8","01310-000"],
+    ["2026-07-12","2026-07-10","","2026-07-06","","","","","","Atrasado","1007","Transportadora B","","","","","","Falta de veículo","RJ","Sudeste","28","Julho","4","20040-000"],
+    ["2026-07-13","2026-07-14","","2026-07-08","","","","","","No prazo","1008","Transportadora A","","","","","","","SP","Sudeste","29","Julho","2","13010-000"],
+    ["2026-07-14","2026-07-15","","2026-07-09","","","","","","No prazo","1009","Transportadora B","","","","","","","MG","Sudeste","29","Julho","3","30110-000"],
+    ["2026-07-15","2026-07-16","","2026-07-10","","","","","","No prazo","1010","Transportadora C","","","","","","","PR","Sul","29","Julho","2","80010-000"],
+    ["2026-07-16","2026-07-17","","2026-07-11","","","","","","No prazo","1011","Transportadora A","","","","","","","RJ","Sudeste","29","Julho","1","20040-000"],
+    ["2026-07-17","2026-07-18","","2026-07-12","","","","","","No prazo","1012","Transportadora B","","","","","","","SP","Sudeste","29","Julho","2","01310-000"],
+    ["2026-07-18","2026-07-19","","2026-07-13","","","","","","No prazo","1013","Transportadora C","","","","","","","RS","Sul","29","Julho","3","90010-000"]
+  ]
+}
