@@ -44,6 +44,12 @@
 
   .wrap{max-width:1320px; margin:0 auto; padding:22px;}
 
+  .tabs{display:flex; gap:2px; padding:0 22px; border-bottom:1px solid var(--line); background:#fff;}
+  .tab{border:none; background:none; padding:14px 18px; font-size:14px; font-weight:500; color:var(--muted); cursor:pointer; font-family:inherit; border-bottom:2.5px solid transparent; margin-bottom:-1px;}
+  .tab:hover{color:var(--ink);}
+  .tab.active{color:var(--blue); border-bottom-color:var(--blue); font-weight:600;}
+  .tab-panel[hidden]{display:none;}
+
   /* Filters */
   .filters{
     display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; background:var(--card);
@@ -230,7 +236,13 @@
   <button class="ghost-btn" id="btnSource">Fonte de dados</button>
 </header>
 
+<nav class="tabs">
+  <button class="tab active" data-tab="entregues" onclick="switchTab('entregues')">Pedidos entregues</button>
+  <button class="tab" data-tab="transito" onclick="switchTab('transito')">Pedidos em trânsito</button>
+</nav>
+
 <div class="wrap">
+  <div id="tab-entregues" class="tab-panel">
   <section class="filters" id="filters" style="display:none">
     <div class="field">
       <label>Período de entrega</label>
@@ -328,6 +340,11 @@
       </div>
     </section>
   </div>
+  </div><!-- /tab-entregues -->
+
+  <div id="tab-transito" class="tab-panel" hidden>
+    <div id="transitoBody"></div>
+  </div><!-- /tab-transito -->
 </div>
 
 <div class="tooltip" id="tooltip"></div>
@@ -372,6 +389,24 @@ const CONFIG = {
     mes:         21,         // V
     dias:        22,         // W  dias que levou pra entregar
     cep:         23          // X  CEP do destino (com traço)
+  },
+  // Planilha "Rastreamento" (pedidos em trânsito)
+  TRANSITO: {
+    nf:0,            // A
+    statusTransp:1,  // B  status da transportadora (atualiza sozinho)
+    dataUltStatus:2, // C
+    estadoEntrega:3, // D
+    salesOrder:4,    // E
+    previsao:5,      // F  previsão Zecore
+    daysToPromised:6,// G  D-n
+    pos:7,           // H
+    statusZecore:9,  // J
+    carrier:10,      // K
+    statusTrp:12,    // M  on time / late time
+    cep:14,          // O
+    uf:15,           // P
+    regiao:16,       // Q
+    dataTransp:17    // R  previsão da transportadora
   }
 };
 /* ================================================================ */
@@ -427,6 +462,7 @@ Object.entries(BR_MAP.states).forEach(([uf, o]) => { NAME2UF[normalize(o.name)] 
 const VALID_UF = new Set(Object.keys(BR_MAP.states));
 
 let RAW = [];        // linhas cruas (arrays por índice)
+let RAW_T = [];      // pedidos em trânsito (planilha Rastreamento)
 let FILTERED = [];
 const F = { dStart:null, dEnd:null, semanas:new Set(), transp:new Set() };
 let semanaOptions = [], transpOptions = [];
@@ -501,6 +537,7 @@ function loadFromApi(url){
       const rows = (data.rows||[]).filter(r => r && r.some(c => c!=null && c.toString().trim()!==""));
       if(!rows.length) throw new Error("A função respondeu, mas sem linhas. Confira SHEET_ID / SHEET_RANGE e o compartilhamento com a conta de serviço.");
       RAW = rows;                                   // backend já removeu o cabeçalho
+      RAW_T = Array.isArray(data.rowsTransito) ? data.rowsTransito : [];
       loadEl.style.display="none";
       document.getElementById("overlay").classList.remove("show");
       initFilters(); render();
@@ -639,7 +676,7 @@ function render(){
   const A = aggregate();
   document.getElementById("kpis").style.display="grid";
   document.getElementById("grid").style.display="grid";
-  renderKpis(A); renderMap(A); renderSla(A); renderCarriers(A); renderCarrierTrend(); renderPareto(); renderMatrix(); renderCep();
+  renderKpis(A); renderMap(A); renderSla(A); renderCarriers(A); renderCarrierTrend(); renderPareto(); renderMatrix(); renderCep(); renderTransito();
   document.getElementById("meta").innerHTML =
     '<b>'+fmtInt(A.total)+'</b> pedidos no filtro · atualizado '+new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 }
@@ -1016,6 +1053,101 @@ function renderCep(){
      <div class="it"><span class="sw" style="background:#b0413f"></span>Positivo = atrasado</div>
      <div class="it" style="margin-left:auto">${fmtInt(list.length)} faixas indo mal (OTD &lt; ${OTD_CORTE}%) com ${minPed}+ pedidos${semCep?` · ${fmtInt(semCep)} sem CEP reconhecido`:""}</div>`;
 }
+/* ---- Aba: Pedidos em trânsito ---- */
+function renderTransito(){
+  const T = CONFIG.TRANSITO;
+  const body = document.getElementById("transitoBody");
+  if(!body) return;
+  if(!RAW_T || !RAW_T.length){
+    body.innerHTML = `<section class="panel"><div class="panel-body"><div class="empty" style="text-align:center;padding:52px 20px;">
+      <div style="font-family:'Space Grotesk';font-size:18px;color:var(--ink);margin-bottom:8px;">Pedidos em trânsito (vivos)</div>
+      <div style="color:var(--muted);font-size:13.5px;max-width:540px;margin:0 auto;line-height:1.6;">Sem dados de trânsito ainda. Conecte a planilha "Rastreamento" (env vars <b>SHEET_ID_TRANSITO</b> / <b>SHEET_RANGE_TRANSITO</b>) e compartilhe-a com a conta de serviço.</div>
+    </div></div></section>`;
+    return;
+  }
+  // dedupe por NF (count unique)
+  const seen=new Set(), rows=[];
+  RAW_T.forEach(r=>{ const nf=(r[T.nf]||"").toString().trim(); if(nf){ if(seen.has(nf)) return; seen.add(nf); } rows.push(r); });
+
+  const catOf = s0 => { const s=normalize(s0);
+    if(/entregue|delivered/.test(s)) return "entregue";
+    if(/retid|retenc|aduaneir|fiscaliz|barrad|apreend/.test(s)) return "retida";
+    if(/liberad|released|desembar/.test(s)) return "liberada";
+    if(/rota|saiu para entrega|em entrega|out for delivery|romaneio/.test(s)) return "rota";
+    if(/transfer/.test(s)) return "transferencia";
+    if(/coletad|coleta|postad/.test(s)) return "coletado";
+    return "outros";
+  };
+  const isLate = r => /late|atras|fora/.test(normalize(r[T.statusTrp]));
+  const today = dOnly(new Date());
+  let emTransito=0, entregues=0, emAtraso=0, noPrazo=0;
+  const cat={rota:0,entregue:0,retida:0,liberada:0,transferencia:0,coletado:0,outros:0};
+  let sDentro=0,nDentro=0, sFora=0,nFora=0;
+  const carr={};
+  rows.forEach(r=>{
+    const c=catOf(r[T.statusTransp]); cat[c]=(cat[c]||0)+1;
+    if(c==="entregue"){ entregues++; return; }
+    emTransito++;
+    const late=isLate(r);
+    if(late) emAtraso++; else noPrazo++;
+    const prev=parseDate(r[T.previsao]);
+    if(prev){ const diff=Math.round((today-dOnly(prev))/86400000);
+      if(late){ sFora+=Math.max(0,diff); nFora++; } else { sDentro+=Math.max(0,-diff); nDentro++; } }
+    const cr=(r[T.carrier]||"—").toString().trim()||"—";
+    const o=carr[cr]||(carr[cr]={late:0,total:0}); o.total++; if(late) o.late++;
+  });
+  const pctPrazo=(emAtraso+noPrazo)? noPrazo/(emAtraso+noPrazo)*100 : NaN;
+  const mDentro=nDentro? sDentro/nDentro : NaN;
+  const mFora=nFora? sFora/nFora : NaN;
+  const kc=slaClass(pctPrazo);
+
+  // % de atraso por transportadora
+  const carrRows=Object.entries(carr).map(([name,o])=>({name, pct:o.total? o.late/o.total*100:0, total:o.total}))
+    .sort((a,b)=>b.pct-a.pct);
+  const carrHtml = carrRows.map(c=>`<div class="sla-row">
+      <span class="sla-uf" style="width:auto">${c.name}</span>
+      <div class="sla-track"><div class="sla-fill" style="width:${c.pct.toFixed(1)}%;background:var(--bad)"></div></div>
+      <div class="sla-val"><span class="pct">${fmtPct(c.pct)}</span><span class="cnt">${fmtInt(c.total)} nf</span></div>
+    </div>`).join("") || '<div class="empty">Sem dados.</div>';
+
+  body.innerHTML = `
+    <section class="kpis" style="display:grid">
+      <div class="kpi"><div class="rail"></div><div class="cap"><span class="eyebrow">Notas em trânsito</span></div><div class="val num">${fmtInt(emTransito)}</div><div class="sub">ainda não entregues</div></div>
+      <div class="kpi k-bad"><div class="rail"></div><div class="cap"><span class="eyebrow">Em atraso</span><span class="dot bad"></span></div><div class="val num">${fmtInt(emAtraso)}</div><div class="sub">prazo já vencido</div></div>
+      <div class="kpi k-good"><div class="rail"></div><div class="cap"><span class="eyebrow">No prazo</span><span class="dot good"></span></div><div class="val num">${fmtInt(noPrazo)}</div><div class="sub">dentro do prazo de entrega</div></div>
+      <div class="kpi k-${kc}"><div class="rail"></div><div class="cap"><span class="eyebrow">% no prazo</span><span class="dot ${kc}"></span></div><div class="val num">${fmtPct(pctPrazo)}</div><div class="sub">dos que estão em trânsito</div></div>
+    </section>
+
+    <section class="panel full" style="margin-top:18px">
+      <div class="panel-head"><h2>Situação atual (status da transportadora)</h2><span class="hint">contagem de NFs por situação</span></div>
+      <div class="panel-body">
+        <div class="kpis" style="display:grid;margin:0">
+          <div class="kpi"><div class="rail"></div><div class="cap"><span class="eyebrow">Em rota de entrega</span></div><div class="val num">${fmtInt(cat.rota)}</div></div>
+          <div class="kpi"><div class="rail"></div><div class="cap"><span class="eyebrow">Entregues</span></div><div class="val num">${fmtInt(cat.entregue)}</div></div>
+          <div class="kpi k-warn"><div class="rail"></div><div class="cap"><span class="eyebrow">Mercadorias retidas</span></div><div class="val num">${fmtInt(cat.retida)}</div></div>
+          <div class="kpi k-good"><div class="rail"></div><div class="cap"><span class="eyebrow">Mercadorias liberadas</span></div><div class="val num">${fmtInt(cat.liberada)}</div></div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);font-family:'IBM Plex Mono';margin-top:12px">Em transferência: ${fmtInt(cat.transferencia)} · Coletado: ${fmtInt(cat.coletado)} · Outros: ${fmtInt(cat.outros)}</div>
+      </div>
+    </section>
+
+    <div class="grid" style="margin-top:18px">
+      <section class="panel">
+        <div class="panel-head"><h2>Média de dias em trânsito</h2><span class="hint">relativo à previsão</span></div>
+        <div class="panel-body">
+          <div class="capint">
+            <div class="ci"><div class="lbl"><b>Dentro do prazo</b>dias restantes (média)</div><div style="text-align:right"><div class="big num" style="color:var(--good)">${fmtDays(mDentro)}</div><div class="cnt">${fmtInt(nDentro)} nf</div></div></div>
+            <div class="ci"><div class="lbl"><b>Fora do prazo</b>dias de atraso (média)</div><div style="text-align:right"><div class="big num" style="color:var(--bad)">${fmtDays(mFora)}</div><div class="cnt">${fmtInt(nFora)} nf</div></div></div>
+          </div>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>% de atraso por transportadora</h2><span class="hint">entre os pedidos em trânsito</span></div>
+        <div class="panel-body"><div class="sla-list">${carrHtml}</div></div>
+      </section>
+    </div>`;
+}
+
 function highlight(uf,on){
   const wrap=document.getElementById("mapWrap");
   const p=wrap.querySelector('path[data-uf="'+uf+'"]');
@@ -1026,6 +1158,12 @@ function highlight(uf,on){
 }
 
 /* ---------- boot ---------- */
+function switchTab(t){
+  document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active", b.dataset.tab===t));
+  const e=document.getElementById("tab-entregues"), r=document.getElementById("tab-transito");
+  if(e) e.hidden = (t!=="entregues");
+  if(r) r.hidden = (t!=="transito");
+}
 function openSetup(){ document.getElementById("overlay").classList.add("show"); document.getElementById("urlInput").focus(); }
 document.getElementById("btnSource").onclick = openSetup;
 document.getElementById("btnLoad").onclick = ()=>{ const u=document.getElementById("urlInput").value.trim(); if(u) smartLoad(u); };
