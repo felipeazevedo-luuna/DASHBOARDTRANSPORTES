@@ -363,6 +363,7 @@ const CONFIG = {
     previsao:    1,          // B  previsão de entrega
     dataCriacao: 3,          // D  data de criação
     status:      9,          // J  on time / late
+    nf:          10,         // K  número da NF
     transportadora: 11,      // L
     motivo:      17,         // R  motivo do atraso
     uf:          18,         // S  estado
@@ -799,7 +800,17 @@ function renderPareto(){
   const C=CONFIG.COLS;
   const esc=s=>(s||"").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const cnt={};
-  FILTERED.forEach(r=>{ const m=(r[C.motivo]||"").toString().trim(); if(!m) return; cnt[m]=(cnt[m]||0)+1; });
+  const seenNf={};   // motivo → conjunto de NFs já contabilizadas (count unique por NF)
+  FILTERED.forEach(r=>{
+    const m=(r[C.motivo]||"").toString().trim(); if(!m) return;
+    const nf=(r[C.nf]||"").toString().trim();
+    if(nf){
+      if(!seenNf[m]) seenNf[m]=new Set();
+      if(seenNf[m].has(nf)) return;   // NF repetida no mesmo motivo → não conta de novo
+      seenNf[m].add(nf);
+    }
+    cnt[m]=(cnt[m]||0)+1;
+  });
   const host=document.getElementById("paretoChart"), legend=document.getElementById("paretoLegend");
   const items=Object.entries(cnt).map(([motivo,c])=>({motivo,c})).sort((a,b)=>b.c-a.c);
   if(!items.length){ host.innerHTML=""; legend.innerHTML='<span style="color:var(--muted);font-size:12px">Sem motivos de atraso no filtro atual.</span>'; return; }
