@@ -41,6 +41,12 @@ Site → **Site settings → Environment variables** → adicione:
 | `GOOGLE_CLIENT_EMAIL` | o `client_email` do JSON                                     |
 | `GOOGLE_PRIVATE_KEY`  | o `private_key` do JSON (cole inteiro, incluindo os `\n`)    |
 | `HAS_HEADER`          | `true` se a 1ª linha for cabeçalho (padrão)                 |
+| `SHEET_ID_TRANSITO`   | ID da planilha de pedidos em trânsito ("Rastreamento")      |
+| `SHEET_RANGE_TRANSITO`| `Rastreamento!A:R`                                          |
+
+> A planilha de trânsito precisa ser **compartilhada com a mesma conta de serviço**
+> (`GOOGLE_CLIENT_EMAIL`, como Leitor). Se `SHEET_ID_TRANSITO` não for definida, a
+> aba "Pedidos em trânsito" fica vazia e a de "Entregues" funciona normalmente.
 
 > Sobre a `GOOGLE_PRIVATE_KEY`: cole exatamente como está no JSON, começando em
 > `-----BEGIN PRIVATE KEY-----` e terminando em `-----END PRIVATE KEY-----`.
