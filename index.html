@@ -202,6 +202,7 @@
   .trend-legend .ln{width:18px; height:3px; border-radius:2px; display:inline-block;}
   .leaflet-wrap{height:480px; border-radius:10px; overflow:hidden; border:1px solid var(--line);}
   .leaflet-wrap .leaflet-popup-content{font-family:'Inter',sans-serif; font-size:12.5px; line-height:1.5;}
+  .leaflet-wrap .pin-ic{background:none; border:none;}
 
   /* Setup / states */
   .overlay{position:fixed; inset:0; background:rgba(244,246,250,.7); backdrop-filter:blur(3px); z-index:100; display:none; align-items:center; justify-content:center; padding:20px;}
@@ -1089,11 +1090,18 @@ function renderDeliveryMap(){
   const maxN=Math.max(...cities.map(c=>c.n));
   cities.forEach(c=>{ const base=c.on+c.late, sla=base?c.on/base*100:NaN;
     const col=!isFinite(sla)?"#1B4DE4":sla>=95?"#12A150":sla>=90?"#C98A00":"#E5484D";
-    const rad=4+Math.sqrt(c.n/maxN)*18;
-    L.circleMarker([c.lat,c.lng],{radius:rad,color:col,weight:1.5,fillColor:col,fillOpacity:0.45})
+    const scale=0.8+Math.sqrt(c.n/maxN)*0.9;
+    L.marker([c.lat,c.lng],{icon:pinIcon(col,scale)})
       .bindPopup(`<b>${c.city} — ${c.uf}</b><br>${fmtInt(c.n)} entregas<br>SLA: ${fmtPct(sla)}<br>Média: ${fmtDays(c.dN?c.dSum/c.dN:NaN)} dias`)
       .addTo(DLAYER);
   });
+}
+function pinIcon(color, scale){
+  const w=Math.round(22*scale), h=Math.round(32*scale);
+  const html=`<svg width="${w}" height="${h}" viewBox="0 0 24 34" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 0C5.37 0 0 5.37 0 12c0 8.5 12 22 12 22s12-13.5 12-22C24 5.37 18.63 0 12 0z" fill="${color}" stroke="#ffffff" stroke-width="1.6"/>
+    <circle cx="12" cy="12" r="4.4" fill="#ffffff"/></svg>`;
+  return L.divIcon({html, className:"pin-ic", iconSize:[w,h], iconAnchor:[w/2,h], popupAnchor:[0,-h+8]});
 }
 
 /* ---- Aba: Pedidos em trânsito ---- */
@@ -1110,6 +1118,9 @@ function stackedColSVG(cats,id){
     const hOn=ph*c.on/niceMax, hLate=ph*c.late/niceMax, yOn=(mt+ph)-hOn, yLate=yOn-hLate;
     if(c.on)   s+=`<rect x="${x.toFixed(1)}" y="${yOn.toFixed(1)}" width="${bw.toFixed(1)}" height="${hOn.toFixed(1)}" fill="#12A150"/>`;
     if(c.late) s+=`<rect x="${x.toFixed(1)}" y="${yLate.toFixed(1)}" width="${bw.toFixed(1)}" height="${hLate.toFixed(1)}" fill="#E5484D"/>`;
+    if(c.late && hLate>13) s+=`<text x="${cxp.toFixed(1)}" y="${(yLate+hLate/2+3.5).toFixed(1)}" font-size="9.5" fill="#fff" text-anchor="middle" font-family="'Space Grotesk',sans-serif" font-weight="600">${c.late}</text>`;
+    if(c.on && hOn>13)     s+=`<text x="${cxp.toFixed(1)}" y="${(yOn+hOn/2+3.5).toFixed(1)}" font-size="9.5" fill="#fff" text-anchor="middle" font-family="'Space Grotesk',sans-serif" font-weight="600">${c.on}</text>`;
+    s+=`<text x="${cxp.toFixed(1)}" y="${(yLate-5).toFixed(1)}" font-size="10" fill="#0E1B2E" text-anchor="middle" font-family="'Space Grotesk',sans-serif" font-weight="600">${c.total}</text>`;
     s+=`<text x="${cxp.toFixed(1)}" y="${(mt+ph+15).toFixed(1)}" font-size="9.5" fill="#5B6B82" text-anchor="middle" font-family="'IBM Plex Mono',monospace">${c.label}</text>`;
     s+=`<rect class="stk-hit" data-k="${k}" x="${(ml+slot*k).toFixed(1)}" y="${mt}" width="${slot.toFixed(1)}" height="${ph}" fill="transparent"/>`;
   });
