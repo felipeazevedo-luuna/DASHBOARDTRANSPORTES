@@ -104,6 +104,7 @@
   /* Map */
   .map-wrap{position:relative;}
   .map-wrap svg{width:100%; height:auto; display:block;}
+  .map-panel .map-wrap{max-width:560px; margin:0 auto;}   /* mapa em largura total: centraliza e limita o tamanho */
   .map-wrap svg path{fill:var(--map-lo); stroke:#fff; stroke-width:1.1; transition:fill .18s, opacity .15s; cursor:pointer;}
   .map-wrap svg path.hl{stroke:var(--blue-deep); stroke-width:2;}
   .map-wrap.dim svg path:not(.hl){opacity:.45}
@@ -252,7 +253,7 @@
   <section class="kpis" id="kpis" style="display:none"></section>
 
   <div class="grid" id="grid" style="display:none">
-    <section class="panel">
+    <section class="panel full map-panel" style="margin-top:0">
       <div class="panel-head">
         <h2>Densidade de pedidos por estado</h2>
         <span class="hint">total no período filtrado</span>
@@ -263,10 +264,10 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel full">
       <div class="panel-head">
         <h2>SLA por estado</h2>
-        <span class="hint">% no prazo · nº em cima = pedidos</span>
+        <span class="hint">% no prazo · nº em cima = pedidos · ordenado por volume</span>
       </div>
       <div class="panel-body">
         <div class="trend-legend" id="slaLegend"></div>
@@ -727,7 +728,7 @@ function renderSla(A){
   const rows = Object.entries(A.byUF).map(([uf,u])=>{
     const base=u.on+u.late; const pct = base? u.on/base*100 : NaN;
     return {uf, pct, count:u.count, base};
-  }).sort((a,b)=> (isFinite(b.pct)?b.pct:-1)-(isFinite(a.pct)?a.pct:-1) || b.count-a.count);
+  }).sort((a,b)=> b.count-a.count || (isFinite(b.pct)?b.pct:-1)-(isFinite(a.pct)?a.pct:-1));   // maior volume primeiro
   const list = document.getElementById("slaList"), legend = document.getElementById("slaLegend");
   if(!rows.length){ list.innerHTML = '<div class="empty">Sem dados de estado no filtro atual.</div>'; if(legend) legend.innerHTML=""; return; }
 
