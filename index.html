@@ -41,6 +41,11 @@
   .meta b{color:var(--ink); font-weight:500;}
   .ghost-btn{border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:9px; padding:7px 12px; font-size:12.5px; font-weight:500; cursor:pointer; font-family:inherit;}
   .ghost-btn:hover{border-color:#c7d2e6}
+  .seg{display:inline-flex; border:1px solid var(--line); border-radius:9px; overflow:hidden; background:#fff;}
+  .seg button{border:0; background:#fff; color:var(--muted); font-family:inherit; font-size:12.5px; font-weight:600; padding:6px 14px; cursor:pointer; transition:background .15s,color .15s;}
+  .seg button + button{border-left:1px solid var(--line);}
+  .seg button.on{background:var(--blue); color:#fff;}
+  .seg button:not(.on):hover{background:var(--bg);}
 
   .wrap{max-width:1320px; margin:0 auto; padding:22px;}
 
@@ -276,6 +281,16 @@
 
     <section class="panel full">
       <div class="panel-head">
+        <h2>% de vendas por UF</h2>
+        <span class="hint">participação de cada estado no total · nº em cima = pedidos</span>
+      </div>
+      <div class="panel-body">
+        <div class="sla-list" id="vendasUf"></div>
+      </div>
+    </section>
+
+    <section class="panel full">
+      <div class="panel-head">
         <h2>Média de dias de entrega por transportadora</h2>
         <span class="hint">dias corridos no período filtrado</span>
       </div>
@@ -290,6 +305,23 @@
       <div class="panel-body">
         <div class="trend-legend" id="trendLegend"></div>
         <div class="trend-wrap" id="trendChart"></div>
+      </div>
+    </section>
+
+    <section class="panel full">
+      <div class="panel-head">
+        <h2>Tempo médio de entrega por período</h2>
+        <div style="display:flex; align-items:center; gap:12px; margin-left:auto">
+          <span class="hint">todas as transportadoras juntas · dias corridos</span>
+          <div class="seg" id="segPeriodo">
+            <button type="button" data-p="semana" class="on">Semana</button>
+            <button type="button" data-p="mes">Mês</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="trend-legend" id="tempoLegend"></div>
+        <div class="trend-wrap" id="tempoChart"></div>
       </div>
     </section>
 
@@ -432,7 +464,7 @@ const VALID_UF = new Set(Object.keys(BR_MAP.states));
 
 let RAW = [];        // linhas cruas (arrays por índice)
 let FILTERED = [];
-const F = { dStart:null, dEnd:null, semanas:new Set(), transp:new Set(), motivos:new Set() };
+const F = { dStart:null, dEnd:null, semanas:new Set(), transp:new Set(), motivos:new Set(), periodo:"semana" };
 let semanaOptions = [], transpOptions = [], motivoOptions = [];
 
 /* ---------- helpers ---------- */
@@ -475,7 +507,7 @@ function parseDate(v){
 function dOnly(d){ return d ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : null; }
 function fmtInt(n){ return (n||0).toLocaleString("pt-BR"); }
 function fmtPct(n){ return isFinite(n) ? n.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})+"%" : "—"; }
-function fmtDays(n){ return isFinite(n) ? n.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1}) : "—"; }
+function fmtDays(n){ return isFinite(n) ? Math.round(n).toLocaleString("pt-BR") : "—"; }
 function toISO(d){ return d ? d.toISOString().slice(0,10) : ""; }
 function slaClass(p){ return !isFinite(p) ? "" : p>=95 ? "good" : p>=90 ? "warn" : "bad"; }
 function lerpColor(a,b,t){
@@ -557,6 +589,14 @@ function initFilters(){
   buildMulti("msSemana", "semana(s)", semanaOptions, F.semanas);
   buildMulti("msTransp", "transportadora(s)", transpOptions, F.transp);
   buildMulti("msMotivo", "motivo(s)", motivoOptions, F.motivos, renderPareto);   // só recalcula o Pareto
+
+  const seg = document.getElementById("segPeriodo");
+  if(seg && !seg.dataset.wired){
+    seg.dataset.wired = "1";
+    seg.querySelectorAll("button").forEach(b=>{
+      b.onclick = ()=>{ F.periodo = b.dataset.p; seg.querySelectorAll("button").forEach(x=>x.classList.toggle("on", x===b)); renderTempoPeriodo(); };
+    });
+  }
 
   document.getElementById("btnClear").onclick = ()=>{
     F.semanas.clear(); F.transp.clear(); F.motivos.clear();
@@ -651,7 +691,7 @@ function render(){
   const A = aggregate();
   document.getElementById("kpis").style.display="grid";
   document.getElementById("grid").style.display="grid";
-  renderKpis(A); renderMap(A); renderSla(A); renderCarriers(A); renderCarrierTrend(); renderPareto(); renderMatrix(); renderCep();
+  renderKpis(A); renderMap(A); renderSla(A); renderVendasUF(A); renderCarriers(A); renderCarrierTrend(); renderTempoPeriodo(); renderPareto(); renderMatrix(); renderCep();
   document.getElementById("meta").innerHTML =
     '<b>'+fmtInt(A.totalUnique)+'</b> pedidos no filtro · atualizado '+new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 }
@@ -660,13 +700,14 @@ function renderKpis(A){
   const slaPct = slaBase ? A.onTime/slaBase*100 : NaN;
   const media = A.diasN ? A.diasSum/A.diasN : NaN;
   const k = slaClass(slaPct);
+  const kd = !isFinite(media) ? "" : (media<=META_DIAS ? "good" : "bad");
   document.getElementById("kpis").innerHTML = `
     <div class="kpi"><div class="rail"></div><div class="cap"><span class="eyebrow">Pedidos</span></div>
       <div class="val num">${fmtInt(A.totalUnique)}</div><div class="sub">no período e filtros ativos</div></div>
     <div class="kpi k-${k}"><div class="rail"></div><div class="cap"><span class="eyebrow">SLA · no prazo</span><span class="dot ${k}"></span></div>
       <div class="val num">${fmtPct(slaPct)}</div><div class="sub">${fmtInt(A.onTime)} no prazo · ${fmtInt(A.late)} atrasados</div></div>
-    <div class="kpi"><div class="rail"></div><div class="cap"><span class="eyebrow">Média de dias</span></div>
-      <div class="val num">${fmtDays(media)}<small>dias</small></div><div class="sub">tempo médio até a entrega</div></div>
+    <div class="kpi k-${kd}"><div class="rail"></div><div class="cap"><span class="eyebrow">Média de dias</span><span class="dot ${kd}"></span></div>
+      <div class="val num">${fmtDays(media)}<small>dias</small></div><div class="sub">meta ≤ ${META_DIAS} dias</div></div>
     <div class="kpi"><div class="rail"></div><div class="cap"><span class="eyebrow">Estados atendidos</span></div>
       <div class="val num">${fmtInt(Object.keys(A.byUF).length)}<small>/27</small></div><div class="sub">com pedidos no período</div></div>`;
 }
@@ -723,6 +764,7 @@ function renderMap(A){
   });
 }
 const SLA_META = 95;   // meta de SLA (% no prazo)
+const META_DIAS = 11;  // meta de tempo médio de entrega (dias) — alvo: <= 11
 function renderSla(A){
   const rows = Object.entries(A.byUF).map(([uf,u])=>{
     const base=u.on+u.late; const pct = base? u.on/base*100 : NaN;
@@ -772,6 +814,95 @@ function renderSla(A){
     bar.addEventListener("mouseleave", ()=>highlight(uf,false));
   });
 }
+/* ---- % de vendas (pedidos) por UF vs total ---- */
+function renderVendasUF(A){
+  const host = document.getElementById("vendasUf");
+  const rows = Object.entries(A.byUF).map(([uf,u])=>({uf, count:u.count}))
+    .sort((a,b)=> b.count-a.count);
+  const total = rows.reduce((s,r)=>s+r.count, 0);
+  if(!total){ host.innerHTML = '<div class="empty">Sem dados de estado no filtro atual.</div>'; return; }
+  rows.forEach(r=> r.pct = r.count/total*100);
+
+  const n=rows.length;
+  const W=Math.max(460, n*46), H=320, ml=40, mr=12, mt=34, mb=40, pw=W-ml-mr, ph=H-mt-mb;
+  const slot=pw/n, barW=Math.min(slot*0.6, 42);
+  const maxPct=Math.max(...rows.map(r=>r.pct)), niceMax=Math.max(5, Math.ceil(maxPct/5)*5);
+  const y=v=>mt+ph*(1-Math.max(0,v)/niceMax), cx=k=>ml+slot*(k+0.5);
+  const BLUE="#3B76F0";
+
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="% de vendas por estado">`;
+  for(let t=0;t<=4;t++){ const gv=niceMax*t/4, gy=y(gv);
+    svg+=`<line x1="${ml}" y1="${gy.toFixed(1)}" x2="${W-mr}" y2="${gy.toFixed(1)}" stroke="#EDF1F7"/>`;
+    svg+=`<text x="${ml-7}" y="${(gy+3).toFixed(1)}" font-size="10" fill="#8A97A8" text-anchor="end" font-family="'IBM Plex Mono',monospace">${Math.round(gv)}%</text>`;
+  }
+  rows.forEach((r,k)=>{
+    const by=y(r.pct), bh=(mt+ph)-by, bx=cx(k)-barW/2, tall=bh>=24;
+    svg+=`<rect class="sla-bar" data-uf="${r.uf}" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${BLUE}"><title>${r.uf} · ${fmtPct(r.pct)} do total · ${fmtInt(r.count)} pedidos</title></rect>`;
+    svg+=`<text x="${cx(k).toFixed(1)}" y="${(by-16).toFixed(1)}" font-size="10" fill="#5B6B82" text-anchor="middle" font-family="Inter,sans-serif">${fmtInt(r.count)}</text>`;
+    svg+=`<text x="${cx(k).toFixed(1)}" y="${(tall?by+14:by-4).toFixed(1)}" font-size="10.5" font-weight="700" fill="${tall?'#fff':BLUE}" text-anchor="middle" font-family="'Space Grotesk',sans-serif">${r.pct>=10?Math.round(r.pct)+'%':r.pct.toFixed(1)+'%'}</text>`;
+    svg+=`<text x="${cx(k).toFixed(1)}" y="${(mt+ph+15).toFixed(1)}" font-size="10.5" font-weight="600" fill="#0E1B2E" text-anchor="middle" font-family="Inter,sans-serif">${r.uf}</text>`;
+  });
+  svg+=`</svg>`;
+  host.innerHTML=svg;
+
+  host.querySelectorAll(".sla-bar").forEach(bar=>{
+    const uf=bar.dataset.uf;
+    bar.addEventListener("mouseenter", ()=>highlight(uf,true));
+    bar.addEventListener("mouseleave", ()=>highlight(uf,false));
+  });
+}
+
+/* ---- Tempo médio de entrega por período (semana/mês) · todas as transportadoras ---- */
+const MESES_ORD = ["janeiro","fevereiro","marco","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+function renderTempoPeriodo(){
+  const C = CONFIG.COLS;
+  const col = F.periodo==="mes" ? C.mes : C.semana;
+  const agg = {};   // bucket -> {sum, n}
+  FILTERED.forEach(r=>{
+    const b=(r[col]||"").toString().trim(); if(!b) return;
+    const d=num(r[C.dias]); if(!isFinite(d)) return;
+    const a=agg[b]||(agg[b]={sum:0,n:0}); a.sum+=d; a.n++;
+  });
+  const host=document.getElementById("tempoChart"), legend=document.getElementById("tempoLegend");
+  let buckets=Object.keys(agg);
+  if(!buckets.length){ host.innerHTML=""; legend.innerHTML='<span style="color:var(--muted);font-size:12px">Sem dados de '+(F.periodo==="mes"?"mês":"semana")+' no filtro atual.</span>'; return; }
+  buckets.sort((a,b)=>{
+    if(F.periodo==="mes"){ const ia=MESES_ORD.indexOf(normalize(a)), ib=MESES_ORD.indexOf(normalize(b)); if(ia>=0&&ib>=0) return ia-ib; }
+    return naturalCmp(a,b);
+  });
+  const rows=buckets.map(b=>({b, media:agg[b].sum/agg[b].n, n:agg[b].n}));
+  const geral = rows.reduce((s,r)=>s+agg[r.b].sum,0)/rows.reduce((s,r)=>s+agg[r.b].n,0);
+
+  const n=rows.length;
+  const W=Math.max(460, n*70), H=320, ml=40, mr=16, mt=30, mb=46, pw=W-ml-mr, ph=H-mt-mb;
+  const slot=pw/n, barW=Math.min(slot*0.5, 52);
+  const maxV=Math.max(geral, META_DIAS, ...rows.map(r=>r.media)), niceMax=Math.max(2, Math.ceil(maxV/2)*2);
+  const y=v=>mt+ph*(1-Math.max(0,v)/niceMax), cx=k=>ml+slot*(k+0.5);
+  const GOOD="#12A150", BAD="#E5484D";
+
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Tempo médio de entrega por ${F.periodo}">`;
+  for(let t=0;t<=4;t++){ const gv=niceMax*t/4, gy=y(gv);
+    svg+=`<line x1="${ml}" y1="${gy.toFixed(1)}" x2="${W-mr}" y2="${gy.toFixed(1)}" stroke="#EDF1F7"/>`;
+    svg+=`<text x="${ml-7}" y="${(gy+3).toFixed(1)}" font-size="10" fill="#8A97A8" text-anchor="end" font-family="'IBM Plex Mono',monospace">${gv%1?gv.toFixed(1):gv}</text>`;
+  }
+  rows.forEach((r,k)=>{
+    const col = r.media<=META_DIAS ? GOOD : BAD;
+    const by=y(r.media), bh=(mt+ph)-by, bx=cx(k)-barW/2, tall=bh>=22;
+    svg+=`<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${col}"><title>${F.periodo==="mes"?r.b:"Semana "+r.b} · ${fmtDays(r.media)} dias · ${fmtInt(r.n)} pedidos · meta ≤ ${META_DIAS}</title></rect>`;
+    svg+=`<text x="${cx(k).toFixed(1)}" y="${(tall?by+15:by-6).toFixed(1)}" font-size="11" font-weight="700" fill="${tall?'#fff':col}" text-anchor="middle" font-family="'Space Grotesk',sans-serif">${fmtDays(r.media)}</text>`;
+    svg+=`<text x="${cx(k).toFixed(1)}" y="${(mt+ph+16).toFixed(1)}" font-size="10.5" font-weight="600" fill="#0E1B2E" text-anchor="middle" font-family="Inter,sans-serif">${r.b}</text>`;
+  });
+  const my=y(META_DIAS);
+  svg+=`<line x1="${ml}" y1="${my.toFixed(1)}" x2="${W-mr}" y2="${my.toFixed(1)}" stroke="#0E1B2E" stroke-width="1.3" stroke-dasharray="5 4"/>`;
+  svg+=`<text x="${(W-mr).toFixed(1)}" y="${(my-4).toFixed(1)}" font-size="9.5" fill="#0E1B2E" text-anchor="end" font-family="'IBM Plex Mono',monospace" font-weight="600">meta ${META_DIAS} dias</text>`;
+  svg+=`</svg>`;
+  host.innerHTML=svg;
+  legend.innerHTML=`
+    <div class="it"><span class="ln" style="background:${GOOD}; height:12px; width:12px; border-radius:3px"></span>Dentro da meta (≤ ${META_DIAS} dias)</div>
+    <div class="it"><span class="ln" style="background:${BAD}; height:12px; width:12px; border-radius:3px"></span>Acima da meta</div>
+    <div class="it"><span class="ln" style="background:#0E1B2E"></span>Meta ${META_DIAS} dias</div>`;
+}
+
 function renderCarriers(A){
   const entries = Object.entries(A.byCarrier).filter(([n])=>n!=="—")
     .map(([name,c])=>({name, media: c.dN? c.dSum/c.dN : NaN, count:c.count}))
