@@ -891,7 +891,7 @@ function renderTempoPeriodo(){
     FILTERED.forEach(r=>{ const b=(r[pcol]||"").toString().trim(); if(!b) return; const d=num(r[C.dias]); if(!isFinite(d)) return; (agg[b]||(agg[b]=[])).push(d); });
     const buckets=sortPeriodos(Object.keys(agg));
     if(!buckets.length){ host.innerHTML=""; legend.innerHTML=emptyMsg; return; }
-    const rows=buckets.map(b=>({b, val:median(agg[b]), n:agg[b].length}));
+    const rows=buckets.map(b=>({b, val:Math.round(median(agg[b])), n:agg[b].length}));
     const n=rows.length, W=Math.max(460, n*70), pw=W-ml-mr;
     const slot=pw/n, barW=Math.min(slot*0.5,52);
     const niceMax=niceMaxOf(Math.max(LIMITE_DIAS, ...rows.map(r=>r.val)));
@@ -933,7 +933,7 @@ function renderTempoPeriodo(){
   if(F.dim==="regiao") cats.sort((a,b)=> (REGIOES_ORD.indexOf(a)-REGIOES_ORD.indexOf(b)) || a.localeCompare(b,"pt-BR"));
   else cats.sort((a,b)=>a.localeCompare(b,"pt-BR"));
   const TOTAL="Total geral"; cats.push(TOTAL);
-  const medOf=(c,p)=>{ if(c===TOTAL){ return allByPer[p]?median(allByPer[p]):NaN; } const a=data[c]&&data[c][p]; return a?median(a):NaN; };
+  const medOf=(c,p)=>{ const a = c===TOTAL ? allByPer[p] : (data[c]&&data[c][p]); return (a&&a.length)?Math.round(median(a)):NaN; };
 
   const nCat=cats.length, nPer=periods.length;
   const groupW=Math.max(48, nPer*16+16);
