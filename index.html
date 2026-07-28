@@ -217,6 +217,19 @@
   .spin{width:15px; height:15px; border:2px solid var(--line); border-top-color:var(--blue); border-radius:50%; animation:sp .7s linear infinite;}
   @keyframes sp{to{transform:rotate(360deg)}}
   .empty{padding:60px 20px; text-align:center; color:var(--muted); font-size:13.5px;}
+  .t-badge{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px; color:#fff; background:var(--blue); border-radius:999px; padding:4px 12px; white-space:nowrap;}
+  .t-badge:empty{display:none;}
+  .t-note{padding:34px 20px; text-align:center; color:var(--muted); font-size:13.5px;}
+  .t-note.err{color:#B4232A;}
+  .t-wrap{max-height:460px; overflow:auto; border:1px solid var(--line); border-radius:12px;}
+  table.t-table{border-collapse:collapse; width:100%; font-size:12.5px;}
+  table.t-table th, table.t-table td{padding:8px 12px; text-align:left; white-space:nowrap; border-bottom:1px solid #EEF2F8;}
+  table.t-table thead th{position:sticky; top:0; background:#F7F9FC; color:#5B6B82; font-weight:600; z-index:1; border-bottom:1px solid var(--line);}
+  table.t-table tbody tr:hover{background:var(--bg);}
+  table.t-table td{color:var(--ink);}
+  table.t-table td.num{font-family:'IBM Plex Mono',monospace;}
+  .t-search{display:flex; gap:10px; align-items:center; margin-bottom:12px; font-size:12.5px; color:var(--muted);}
+  .t-search input{border:1px solid var(--line); border-radius:8px; padding:7px 10px; font-size:13px; font-family:inherit; min-width:220px;}
 
   @media (max-width:1000px){ .grid{grid-template-columns:1fr} .kpis{grid-template-columns:repeat(2,1fr)} }
   @media (max-width:560px){ .wrap{padding:14px} .kpis{grid-template-columns:1fr} .topbar{padding:12px 14px} .filters{padding:13px} }
@@ -368,6 +381,19 @@
         <div class="matrix-wrap"><table class="matrix" id="cepMatrix"></table></div>
       </div>
     </section>
+
+    <section class="panel full">
+      <div class="panel-head">
+        <h2>Pedidos em trânsito</h2>
+        <div style="display:flex; align-items:center; gap:12px; margin-left:auto">
+          <span class="hint">aba “Rastreamento” · não afetado pelos filtros de entrega</span>
+          <span class="t-badge" id="transitoCount"></span>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div id="transito"></div>
+      </div>
+    </section>
   </div>
 </div>
 
@@ -469,6 +495,7 @@ const VALID_UF = new Set(Object.keys(BR_MAP.states));
 
 let RAW = [];        // linhas cruas (arrays por índice)
 let FILTERED = [];
+let RAW_T = [], HDR_T = [], T_ERR = null;   // pedidos em trânsito (aba "Rastreamento")
 const F = { dStart:null, dEnd:null, semanas:new Set(), transp:new Set(), motivos:new Set(), periodo:"semana", dim:"geral" };
 let semanaOptions = [], transpOptions = [], motivoOptions = [];
 
@@ -544,6 +571,9 @@ function loadFromApi(url){
       const rows = (data.rows||[]).filter(r => r && r.some(c => c!=null && c.toString().trim()!==""));
       if(!rows.length) throw new Error("A função respondeu, mas sem linhas. Confira SHEET_ID / SHEET_RANGE e o compartilhamento com a conta de serviço.");
       RAW = rows;                                   // backend já removeu o cabeçalho
+      RAW_T = (data.rowsTransito||[]).filter(r => r && r.some(c => c!=null && c.toString().trim()!==""));
+      HDR_T = data.headerTransito || [];
+      T_ERR = data.transitoError || null;
       loadEl.style.display="none";
       document.getElementById("overlay").classList.remove("show");
       initFilters(); render();
@@ -700,12 +730,50 @@ function aggregate(){
 }
 
 /* ---------- render ---------- */
+/* ---- Pedidos em trânsito (aba Rastreamento) ---- */
+let T_QUERY = "";
+function colLetter(i){ let s=""; i++; while(i>0){ const m=(i-1)%26; s=String.fromCharCode(65+m)+s; i=Math.floor((i-1)/26); } return s; }
+function renderTransito(){
+  const host = document.getElementById("transito");
+  const badge = document.getElementById("transitoCount");
+  if(!host) return;
+  if(T_ERR){ if(badge) badge.textContent=""; host.innerHTML = '<div class="t-note err">Não foi possível carregar a aba de trânsito: '+esc(T_ERR)+'</div>'; return; }
+  if(!RAW_T.length){ if(badge) badge.textContent=""; host.innerHTML = '<div class="t-note">Nenhum pedido em trânsito no momento — ou a aba “Rastreamento” ainda não foi conectada (defina <b>SHEET_ID_TRANSITO</b> e compartilhe a planilha com a conta de serviço).</div>'; return; }
+
+  if(badge) badge.textContent = fmtInt(RAW_T.length) + " em trânsito";
+
+  const ncol = Math.max(HDR_T.length, ...RAW_T.map(r=>r.length));
+  const cols = [];
+  for(let i=0;i<ncol;i++){ const h=(HDR_T[i]!=null?HDR_T[i].toString().trim():""); cols.push(h || colLetter(i)); }
+
+  const q = normalize(T_QUERY);
+  const rows = q ? RAW_T.filter(r => r.some(c => normalize(c).includes(q))) : RAW_T;
+  const isNum = v => v!=null && v.toString().trim()!=="" && /\d/.test(v) && !isNaN(v.toString().replace(/\./g,"").replace(",", "."));
+
+  const LIMIT = 300;
+  let html = `<div class="t-search">🔎 <input type="text" id="tSearch" placeholder="Buscar em qualquer coluna…" value="${esc(T_QUERY)}"> <span>${fmtInt(rows.length)} de ${fmtInt(RAW_T.length)}</span></div>`;
+  html += '<div class="t-wrap"><table class="t-table"><thead><tr>';
+  cols.forEach(c=> html += '<th>'+esc(c)+'</th>');
+  html += '</tr></thead><tbody>';
+  rows.slice(0,LIMIT).forEach(r=>{
+    html += '<tr>';
+    for(let i=0;i<ncol;i++){ const v = r[i]!=null? r[i].toString() : ""; html += '<td class="'+(isNum(v)?'num':'')+'">'+esc(v)+'</td>'; }
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  if(rows.length>LIMIT) html += '<div class="t-note" style="padding:12px 0 0">Mostrando as primeiras '+LIMIT+' de '+fmtInt(rows.length)+' linhas — use a busca para refinar.</div>';
+  host.innerHTML = html;
+
+  const si = document.getElementById("tSearch");
+  if(si){ si.oninput = ()=>{ const pos=si.selectionStart; T_QUERY = si.value; renderTransito(); const s2=document.getElementById("tSearch"); if(s2){ s2.focus(); try{ s2.setSelectionRange(pos,pos); }catch(_){} } }; }
+}
+
 function render(){
   applyFilters();
   const A = aggregate();
   document.getElementById("kpis").style.display="grid";
   document.getElementById("grid").style.display="grid";
-  renderKpis(A); renderMap(A); renderSla(A); renderVendasUF(A); renderCarriers(A); renderCarrierTrend(); renderTempoPeriodo(); renderPareto(); renderMatrix(); renderCep();
+  renderKpis(A); renderMap(A); renderSla(A); renderVendasUF(A); renderCarriers(A); renderCarrierTrend(); renderTempoPeriodo(); renderPareto(); renderMatrix(); renderCep(); renderTransito();
   document.getElementById("meta").innerHTML =
     '<b>'+fmtInt(A.totalUnique)+'</b> pedidos no filtro · atualizado '+new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 }
