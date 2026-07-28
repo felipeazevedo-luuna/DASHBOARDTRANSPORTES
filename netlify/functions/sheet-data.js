@@ -81,7 +81,7 @@ exports.handler = async function () {
     if (HAS_HEADER) rows = rows.slice(1);
 
     // 2ª planilha (trânsito) — não derruba a resposta se falhar (ex.: ainda não compartilhada)
-    let rowsTransito = [], transitoError = null;
+    let rowsTransito = [], headerTransito = [], transitoError = null;
     if (SHEET_ID_T) {
       try {
         const urlT = "https://sheets.googleapis.com/v4/spreadsheets/" + SHEET_ID_T +
@@ -90,13 +90,13 @@ exports.handler = async function () {
         const jt = await rt.json();
         if (jt.error) throw new Error(jt.error.message || JSON.stringify(jt.error));
         rowsTransito = jt.values || [];
-        if (HAS_HEADER_T) rowsTransito = rowsTransito.slice(1);
+        if (HAS_HEADER_T && rowsTransito.length) { headerTransito = rowsTransito[0]; rowsTransito = rowsTransito.slice(1); }
       } catch (e) { transitoError = String(e.message || e); }
     }
 
     return { statusCode: 200, headers, body: JSON.stringify({
       ok: true, rows: rows, count: rows.length, range: RANGE,
-      rowsTransito: rowsTransito, countTransito: rowsTransito.length, transitoError: transitoError,
+      rowsTransito: rowsTransito, headerTransito: headerTransito, countTransito: rowsTransito.length, transitoError: transitoError,
       updated: new Date().toISOString() }) };
   } catch (err) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: String(err.message || err) }) };
