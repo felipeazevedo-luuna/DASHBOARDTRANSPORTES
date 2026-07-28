@@ -252,18 +252,18 @@
   <section class="kpis" id="kpis" style="display:none"></section>
 
   <div class="grid" id="grid" style="display:none">
-    <section class="panel">
+    <section class="panel full" style="margin-top:0">
       <div class="panel-head">
         <h2>Densidade de pedidos por estado</h2>
         <span class="hint">total no período filtrado</span>
       </div>
       <div class="panel-body">
-        <div class="map-wrap" id="mapWrap"></div>
-        <div class="legend"><span>menos</span><div class="bar"></div><span>mais</span></div>
+        <div class="map-wrap" id="mapWrap" style="max-width:680px; margin:0 auto"></div>
+        <div class="legend" style="max-width:680px; margin:10px auto 0"><span>menos</span><div class="bar"></div><span>mais</span></div>
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel full">
       <div class="panel-head">
         <h2>SLA por estado</h2>
         <span class="hint">% no prazo · nº em cima = pedidos</span>
@@ -899,7 +899,7 @@ function renderPareto(){
     const bx=cx(k)-barW/2, by=yC(x.c), bh=(mt+ph)-by, inside=bh>22;
     svg+=`<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${BLUE}"/>`;
     svg+=`<text x="${cx(k).toFixed(1)}" y="${(inside?by+16:by-6).toFixed(1)}" font-size="11" fill="${inside?'#fff':'#0E1B2E'}" text-anchor="middle" font-family="'Space Grotesk',sans-serif" font-weight="600">${x.c}</text>`;
-    wrap2(x.motivo,16).forEach((ln,li)=>{ svg+=`<text x="${cx(k).toFixed(1)}" y="${(mt+ph+16+li*12).toFixed(1)}" font-size="9.5" fill="#5B6B82" text-anchor="middle" font-family="Inter,sans-serif">${esc(ln)}</text>`; });
+    wrap2(x.motivo,16).forEach((ln,li)=>{ svg+=`<text x="${cx(k).toFixed(1)}" y="${(mt+ph+16+li*12).toFixed(1)}" font-size="9.5" fill="#0E1B2E" font-weight="700" text-anchor="middle" font-family="Inter,sans-serif">${esc(ln)}</text>`; });
   });
   svg+=`<polyline points="${items.map((x,k)=>cx(k).toFixed(1)+','+yP(x.cum).toFixed(1)).join(' ')}" fill="none" stroke="${RED}" stroke-width="2.5" stroke-linejoin="round"/>`;
   items.forEach((x,k)=>{ svg+=`<circle cx="${cx(k).toFixed(1)}" cy="${yP(x.cum).toFixed(1)}" r="3.2" fill="#fff" stroke="${RED}" stroke-width="2"/>`;
