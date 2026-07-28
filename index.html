@@ -41,6 +41,10 @@
   .meta b{color:var(--ink); font-weight:500;}
   .ghost-btn{border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:9px; padding:7px 12px; font-size:12.5px; font-weight:500; cursor:pointer; font-family:inherit;}
   .ghost-btn:hover{border-color:#c7d2e6}
+  .tabs{display:flex; gap:4px; margin-bottom:18px; border-bottom:1px solid var(--line);}
+  .tabs button{border:0; background:none; font-family:inherit; font-size:14.5px; font-weight:600; color:var(--muted); padding:11px 18px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .15s, border-color .15s;}
+  .tabs button.on{color:var(--blue); border-bottom-color:var(--blue);}
+  .tabs button:hover:not(.on){color:var(--ink);}
   .seg{display:inline-flex; border:1px solid var(--line); border-radius:9px; overflow:hidden; background:#fff;}
   .seg button{border:0; background:#fff; color:var(--muted); font-family:inherit; font-size:12.5px; font-weight:600; padding:6px 14px; cursor:pointer; transition:background .15s,color .15s;}
   .seg button + button{border-left:1px solid var(--line);}
@@ -249,6 +253,12 @@
 </header>
 
 <div class="wrap">
+  <nav class="tabs" id="tabs" style="display:none">
+    <button type="button" data-view="entregues" class="on">Entregues</button>
+    <button type="button" data-view="transito">Em trânsito</button>
+  </nav>
+
+  <div id="viewEntregues">
   <section class="filters" id="filters" style="display:none">
     <div class="field">
       <label>Período de entrega</label>
@@ -381,12 +391,16 @@
         <div class="matrix-wrap"><table class="matrix" id="cepMatrix"></table></div>
       </div>
     </section>
+  </div><!-- /grid -->
+  </div><!-- /viewEntregues -->
 
-    <section class="panel full">
+  <div id="viewTransito" style="display:none">
+    <section class="kpis" id="kpisT" style="display:none"></section>
+    <section class="panel full" style="margin-top:0">
       <div class="panel-head">
         <h2>Pedidos em trânsito</h2>
         <div style="display:flex; align-items:center; gap:12px; margin-left:auto">
-          <span class="hint">aba “Rastreamento” · não afetado pelos filtros de entrega</span>
+          <span class="hint">aba “Rastreamento” · lista completa, sem filtros de entrega</span>
           <span class="t-badge" id="transitoCount"></span>
         </div>
       </div>
@@ -394,7 +408,7 @@
         <div id="transito"></div>
       </div>
     </section>
-  </div>
+  </div><!-- /viewTransito -->
 </div>
 
 <div class="tooltip" id="tooltip"></div>
@@ -634,6 +648,14 @@ function initFilters(){
       b.onclick = ()=>{ F.periodo = b.dataset.p; seg.querySelectorAll("button").forEach(x=>x.classList.toggle("on", x===b)); renderTempoPeriodo(); };
     });
   }
+  const tabs = document.getElementById("tabs");
+  if(tabs){
+    tabs.style.display = "flex";
+    if(!tabs.dataset.wired){
+      tabs.dataset.wired = "1";
+      tabs.querySelectorAll("button").forEach(b=>{ b.onclick = ()=>switchTab(b.dataset.view); });
+    }
+  }
   const segD = document.getElementById("segDim");
   if(segD && !segD.dataset.wired){
     segD.dataset.wired = "1";
@@ -730,6 +752,56 @@ function aggregate(){
 }
 
 /* ---------- render ---------- */
+/* ---- Abas (Entregues / Em trânsito) ---- */
+function switchTab(view){
+  document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on", b.dataset.view===view));
+  const ve=document.getElementById("viewEntregues"), vt=document.getElementById("viewTransito");
+  if(ve) ve.style.display = view==="transito" ? "none" : "";
+  if(vt) vt.style.display = view==="transito" ? "" : "none";
+}
+
+/* ---- KPIs de trânsito (detecta colunas pelo nome do cabeçalho) ---- */
+function findColT(keys){ for(let i=0;i<HDR_T.length;i++){ const h=normalize(HDR_T[i]); if(keys.some(k=>h.includes(k))) return i; } return -1; }
+function renderTransitoKpis(){
+  const host=document.getElementById("kpisT");
+  if(!host) return;
+  if(T_ERR || !RAW_T.length){ host.style.display="none"; host.innerHTML=""; return; }
+
+  const diasCol   = findColT(["dias"]);
+  const prevCol   = findColT(["previsao","prazo"]);
+  const transpCol = findColT(["transportadora","transp"]);
+  const cards=[];
+
+  cards.push(`<div class="kpi"><div class="rail"></div><div class="cap"><span class="eyebrow">Em trânsito</span></div>
+    <div class="val num">${fmtInt(RAW_T.length)}</div><div class="sub">pedidos a caminho</div></div>`);
+
+  if(diasCol>=0){
+    const vals=RAW_T.map(r=>num(r[diasCol])).filter(isFinite);
+    const med=median(vals), kd=!isFinite(med)?"":(med<=LIMITE_DIAS?"good":"bad");
+    cards.push(`<div class="kpi k-${kd}"><div class="rail"></div><div class="cap"><span class="eyebrow">Dias em trânsito</span><span class="dot ${kd}"></span></div>
+      <div class="val num">${fmtDays(med)}<small>dias</small></div><div class="sub">mediana · limite ${LIMITE_DIAS}</div></div>`);
+    const acima=vals.filter(v=>v>LIMITE_DIAS).length, pct=vals.length?acima/vals.length*100:0, ka=acima?"bad":"good";
+    cards.push(`<div class="kpi k-${ka}"><div class="rail"></div><div class="cap"><span class="eyebrow">Acima do limite</span><span class="dot ${ka}"></span></div>
+      <div class="val num">${fmtInt(acima)}</div><div class="sub">${fmtPct(pct)} · mais de ${LIMITE_DIAS} dias</div></div>`);
+  }
+
+  if(prevCol>=0){
+    const hoje=dOnly(new Date()); let venc=0;
+    RAW_T.forEach(r=>{ const d=parseDate(r[prevCol]); if(d && dOnly(d)<hoje) venc++; });
+    const kv=venc?"bad":"good";
+    cards.push(`<div class="kpi k-${kv}"><div class="rail"></div><div class="cap"><span class="eyebrow">Previsão vencida</span><span class="dot ${kv}"></span></div>
+      <div class="val num">${fmtInt(venc)}</div><div class="sub">previsão de entrega já passou</div></div>`);
+  } else if(transpCol>=0){
+    const set=new Set(); RAW_T.forEach(r=>{ const t=(r[transpCol]||"").toString().trim(); if(t) set.add(t); });
+    cards.push(`<div class="kpi"><div class="rail"></div><div class="cap"><span class="eyebrow">Transportadoras</span></div>
+      <div class="val num">${fmtInt(set.size)}</div><div class="sub">operando em trânsito</div></div>`);
+  }
+
+  host.style.display="grid";
+  host.style.gridTemplateColumns = "repeat("+Math.min(cards.length,4)+",minmax(0,1fr))";
+  host.innerHTML=cards.join("");
+}
+
 /* ---- Pedidos em trânsito (aba Rastreamento) ---- */
 let T_QUERY = "";
 function colLetter(i){ let s=""; i++; while(i>0){ const m=(i-1)%26; s=String.fromCharCode(65+m)+s; i=Math.floor((i-1)/26); } return s; }
@@ -773,7 +845,7 @@ function render(){
   const A = aggregate();
   document.getElementById("kpis").style.display="grid";
   document.getElementById("grid").style.display="grid";
-  renderKpis(A); renderMap(A); renderSla(A); renderVendasUF(A); renderCarriers(A); renderCarrierTrend(); renderTempoPeriodo(); renderPareto(); renderMatrix(); renderCep(); renderTransito();
+  renderKpis(A); renderMap(A); renderSla(A); renderVendasUF(A); renderCarriers(A); renderCarrierTrend(); renderTempoPeriodo(); renderPareto(); renderMatrix(); renderCep(); renderTransitoKpis(); renderTransito();
   document.getElementById("meta").innerHTML =
     '<b>'+fmtInt(A.totalUnique)+'</b> pedidos no filtro · atualizado '+new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 }
