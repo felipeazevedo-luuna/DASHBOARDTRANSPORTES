@@ -283,11 +283,23 @@
     <section class="panel full" style="margin-top:0">
       <div class="panel-head">
         <h2>Densidade de pedidos por estado</h2>
-        <span class="hint">total no período filtrado</span>
+        <span class="hint">total no período filtrado · somente 3PL (transportadoras terceiras)</span>
       </div>
       <div class="panel-body">
         <div class="map-wrap" id="mapWrap" style="max-width:680px; margin:0 auto"></div>
         <div class="legend" style="max-width:680px; margin:10px auto 0"><span>menos</span><div class="bar"></div><span>mais</span></div>
+      </div>
+    </section>
+
+    <section class="panel full">
+      <div class="panel-head">
+        <h2>Mapa de calor · Grande São Paulo</h2>
+        <span class="hint">somente pedidos inhouse (frota própria) · por zona/região via CEP</span>
+      </div>
+      <div class="panel-body">
+        <div class="map-wrap" id="mapWrapSP" style="max-width:520px; margin:0 auto"></div>
+        <div class="legend" style="max-width:520px; margin:10px auto 0"><span>menos</span><div class="bar"></div><span>mais</span></div>
+        <div class="empty" id="mapSPEmpty" style="display:none; margin-top:10px">Sem pedidos inhouse com CEP na Grande SP no filtro atual.</div>
       </div>
     </section>
 
@@ -482,6 +494,53 @@ function resolveCep(v){
 }
 function fmtCep8(n){ const s=String(n).padStart(8,"0"); return s.slice(0,5)+"-"+s.slice(5); }
 function fmtRange(a,b){ return fmtCep8(a)+" a "+fmtCep8(b); }
+
+/* ---- Zonas da Grande São Paulo (mapa de calor · só pedidos inhouse) ---- */
+// dentro da capital, distinguimos por faixa de CEP (o CEP_LOOKUP só sabe "Sao Paulo" p/ toda a capital)
+const SP_CAPITAL_ZONAS = [
+  {nome:"Centro",      faixas:[[1000,1599]]},
+  {nome:"Zona Norte",  faixas:[[2000,2999]]},
+  {nome:"Zona Leste",  faixas:[[3000,3999],[8000,8499]]},
+  {nome:"Zona Sul",    faixas:[[4000,4999]]},
+  {nome:"Zona Oeste",  faixas:[[5000,5899]]},
+];
+// fora da capital, mas na Grande SP: usamos o nome do MUNICÍPIO (já resolvido via CEP_LOOKUP)
+const OSASCO_CIDADES = ["Osasco","Carapicuiba","Barueri","Santana de Parnaiba","Pirapora do Bom Jesus","Jandira","Itapevi","Cotia","Vargem Grande Paulista","Taboao da Serra","Embu das Artes","Itapecerica da Serra","Sao Lourenco da Serra","Embu-Guacu","Juquitiba"];
+const GUARULHOS_CIDADES = ["Guarulhos","Aruja","Santa Isabel","Mairipora","Caieiras","Cajamar","Franco da Rocha","Francisco Morato","Ferraz de Vasconcelos","Poa","Itaquaquecetuba","Suzano","Mogi das Cruzes","Guararema","Biritiba-Mirim","Salesopolis"];
+const ABC_CIDADES = ["Santo Andre","Maua","Ribeirao Pires","Rio Grande da Serra","Sao Caetano do Sul","Sao Bernardo do Campo","Diadema"];
+const OSASCO_SET = new Set(OSASCO_CIDADES.map(normalize));
+const GUARULHOS_SET = new Set(GUARULHOS_CIDADES.map(normalize));
+const ABC_SET = new Set(ABC_CIDADES.map(normalize));
+function zonaCapitalSP(prefix5){
+  for(const z of SP_CAPITAL_ZONAS){ if(z.faixas.some(([a,b])=>prefix5>=a&&prefix5<=b)) return z.nome; }
+  return null;
+}
+function zonaGrandeSP(cepStr){
+  const info = resolveCep(cepStr);
+  if(!info || info.uf!=="SP") return null;
+  const cityN = normalize(info.city);
+  if(cityN===normalize("Sao Paulo")){
+    const n = cepToInt(cepStr); if(n==null) return null;
+    return zonaCapitalSP(Math.floor(n/1000));
+  }
+  if(OSASCO_SET.has(cityN)) return "Osasco / Grande Osasco";
+  if(GUARULHOS_SET.has(cityN)) return "Guarulhos / Alto Tietê";
+  if(ABC_SET.has(cityN)) return "Grande ABC";
+  return null; // fora do escopo da Grande SP
+}
+const SP_ZONA_GRID = [
+  {nome:"Osasco / Grande Osasco", col:0, row:0},
+  {nome:"Zona Norte",             col:1, row:0},
+  {nome:"Guarulhos / Alto Tietê", col:2, row:0},
+  {nome:"Zona Oeste",             col:0, row:1},
+  {nome:"Centro",                 col:1, row:1},
+  {nome:"Zona Leste",             col:2, row:1},
+  {nome:"Zona Sul",               col:1, row:2},
+  {nome:"Grande ABC",             col:2, row:2},
+];
+function isInhouse(r){
+  return normalize(r[CONFIG.COLS.transportadora])==="inhouse";
+}
 function mxCellStyle(v,sign,cellMax){
   if(!v) return "";
   const t = Math.pow(v/cellMax, .7);
@@ -750,6 +809,31 @@ function aggregate(){
   });
   return { byUF, byCarrier, onTime, late, diasSum, diasN, diasAll, total:FILTERED.length, totalUnique:nfSet.size+semNf };
 }
+/* ---- byUF só de um subconjunto de linhas (usado p/ mapa 3PL) ---- */
+function aggregateByUF(rows){
+  const C = CONFIG.COLS; const byUF = {};
+  rows.forEach(r=>{
+    const uf = toUF(r[C.uf]); if(!uf) return;
+    const st = classifyStatus(r[C.status]); const dias = num(r[C.dias]);
+    const u = byUF[uf] || (byUF[uf]={count:0,on:0,late:0,dSum:0,dN:0});
+    u.count++; if(st==="ontime") u.on++; else if(st==="late") u.late++;
+    if(isFinite(dias)){ u.dSum+=dias; u.dN++; }
+  });
+  return byUF;
+}
+/* ---- Mapa de calor · Grande SP (só pedidos inhouse, por zona via CEP) ---- */
+function aggregateZonasSP(){
+  const C = CONFIG.COLS; const byZona = {};
+  FILTERED.forEach(r=>{
+    if(!isInhouse(r)) return;
+    const zona = zonaGrandeSP(r[C.cep]); if(!zona) return;
+    const st = classifyStatus(r[C.status]); const dias = num(r[C.dias]);
+    const z = byZona[zona] || (byZona[zona]={count:0,on:0,late:0,dSum:0,dN:0});
+    z.count++; if(st==="ontime") z.on++; else if(st==="late") z.late++;
+    if(isFinite(dias)){ z.dSum+=dias; z.dN++; }
+  });
+  return byZona;
+}
 
 /* ---------- render ---------- */
 /* ---- Abas (Entregues / Em trânsito) ---- */
@@ -845,7 +929,10 @@ function render(){
   const A = aggregate();
   document.getElementById("kpis").style.display="grid";
   document.getElementById("grid").style.display="grid";
-  renderKpis(A); renderMap(A); renderSla(A); renderVendasUF(A); renderCarriers(A); renderCarrierTrend(); renderTempoPeriodo(); renderPareto(); renderMatrix(); renderCep(); renderTransitoKpis(); renderTransito();
+  renderKpis(A);
+  renderMap({byUF: aggregateByUF(FILTERED.filter(r=>!isInhouse(r)))});   // densidade por estado: só 3PL
+  renderMapaSP();                                                        // Grande SP: só inhouse, por zona
+  renderSla(A); renderVendasUF(A); renderCarriers(A); renderCarrierTrend(); renderTempoPeriodo(); renderPareto(); renderMatrix(); renderCep(); renderTransitoKpis(); renderTransito();
   document.getElementById("meta").innerHTML =
     '<b>'+fmtInt(A.totalUnique)+'</b> pedidos no filtro · atualizado '+new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 }
@@ -916,6 +1003,44 @@ function renderMap(A){
     });
     p.addEventListener("mouseleave", ()=>{ tip.classList.remove("show"); highlight(uf,false); });
   });
+}
+function renderMapaSP(){
+  const byZona = aggregateZonasSP();
+  const counts = Object.values(byZona).map(z=>z.count);
+  const max = counts.length ? Math.max(...counts) : 0;
+  const cell=148, gap=14, ml=10, mt=10;
+  const W = ml*2+cell*3+gap*2, H = mt*2+cell*3+gap*2;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Mapa de calor Grande São Paulo - inhouse">`;
+  SP_ZONA_GRID.forEach(zg=>{
+    const z = byZona[zg.nome];
+    const t = (max>0 && z) ? Math.pow(z.count/max, .72) : 0;
+    const fill = z ? lerpColor(MAP_LO, MAP_HI, t) : "#EEF3FC";
+    const x = ml+zg.col*(cell+gap), y = mt+zg.row*(cell+gap);
+    const light = t>0.55, txt = light?"#FFFFFF":"#334155";
+    svg += `<rect data-zona="${esc(zg.nome)}" x="${x}" y="${y}" width="${cell}" height="${cell}" rx="16" fill="${fill}" stroke="#fff" stroke-width="2" style="cursor:pointer"></rect>`;
+    svg += `<text x="${x+cell/2}" y="${y+cell/2-8}" font-size="12" font-weight="700" fill="${txt}" text-anchor="middle" font-family="'Space Grotesk',sans-serif" style="pointer-events:none">${esc(zg.nome)}</text>`;
+    svg += `<text x="${x+cell/2}" y="${y+cell/2+16}" font-size="17" font-weight="700" fill="${txt}" text-anchor="middle" font-family="'Space Grotesk',sans-serif" style="pointer-events:none">${fmtInt(z?z.count:0)}</text>`;
+  });
+  svg += `</svg>`;
+  const wrap = document.getElementById("mapWrapSP");
+  wrap.innerHTML = svg;
+  const tip = document.getElementById("tooltip");
+  wrap.querySelectorAll("rect[data-zona]").forEach(rect=>{
+    const zona = rect.dataset.zona, z = byZona[zona];
+    rect.addEventListener("mousemove", ev=>{
+      const on=z?z.on:0, la=z?z.late:0, base=on+la, sla=base? on/base*100 : NaN;
+      const media=(z&&z.dN)? z.dSum/z.dN : NaN;
+      tip.innerHTML = `<div class="tt-uf"><span>${esc(zona)}</span></div>
+        <div class="tt-row"><span>Pedidos</span><b>${fmtInt(z?z.count:0)}</b></div>
+        <div class="tt-row"><span>No prazo</span><b>${fmtPct(sla)}</b></div>
+        <div class="tt-row"><span>Média dias</span><b>${fmtDays(media)}</b></div>`;
+      tip.style.left = Math.min(ev.clientX+14, innerWidth-190)+"px";
+      tip.style.top = (ev.clientY+14)+"px"; tip.classList.add("show");
+    });
+    rect.addEventListener("mouseleave", ()=> tip.classList.remove("show"));
+  });
+  const empty = document.getElementById("mapSPEmpty");
+  if(empty) empty.style.display = counts.length ? "none" : "";
 }
 const SLA_META = 95;   // meta de SLA (% no prazo)
 const LIMITE_DIAS = 11;  // tempo médio de entrega — MÁXIMO aceitável (dias): <= 11
