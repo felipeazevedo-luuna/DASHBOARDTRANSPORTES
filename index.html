@@ -284,11 +284,22 @@
   <div class="grid" id="grid" style="display:none">
     <section class="panel full" style="margin-top:0">
       <div class="panel-head">
+        <h2>Densidade de pedidos por estado</h2>
+        <span class="hint">total no período filtrado · somente 3PL (transportadoras terceiras)</span>
+      </div>
+      <div class="panel-body">
+        <div class="map-wrap" id="mapWrap" style="max-width:680px; margin:0 auto"></div>
+        <div class="legend" style="max-width:680px; margin:10px auto 0"><span>menos</span><div class="bar"></div><span>mais</span></div>
+      </div>
+    </section>
+
+    <section class="panel full">
+      <div class="panel-head">
         <h2>Mapa de pedidos · 3PL</h2>
         <span class="hint">cada alfinete é 1 pedido, localizado pelo CEP · somente 3PL (transportadoras terceiras)</span>
       </div>
       <div class="panel-body">
-        <div class="map-wrap" id="mapWrap" style="height:480px; border-radius:14px; overflow:hidden; max-width:900px; margin:0 auto"></div>
+        <div class="map-wrap" id="mapWrapPins" style="height:480px; border-radius:14px; overflow:hidden; max-width:900px; margin:0 auto"></div>
         <div class="empty" id="mapEmpty" style="display:none; margin-top:10px">Sem pedidos 3PL com CEP localizável no filtro atual.</div>
       </div>
     </section>
@@ -307,7 +318,19 @@
 
     <section class="panel full">
       <div class="panel-head">
+        <h2>Mapa de pedidos · Inhouse</h2>
+        <span class="hint">cada alfinete é 1 pedido, localizado pelo CEP · somente inhouse (frota própria)</span>
+      </div>
+      <div class="panel-body">
+        <div class="map-wrap" id="mapWrapPinsInhouse" style="height:480px; border-radius:14px; overflow:hidden; max-width:900px; margin:0 auto"></div>
+        <div class="empty" id="mapEmptyInhouse" style="display:none; margin-top:10px">Sem pedidos inhouse com CEP localizável no filtro atual.</div>
+      </div>
+    </section>
+
+    <section class="panel full">
+      <div class="panel-head">
         <h2>SLA por estado</h2>
+
         <span class="hint">% no prazo · nº em cima = pedidos</span>
       </div>
       <div class="panel-body">
@@ -936,8 +959,10 @@ function render(){
   document.getElementById("kpis").style.display="grid";
   document.getElementById("grid").style.display="grid";
   renderKpis(A);
-  renderMap();                                                           // pedidos 3PL: pinos por CEP (Leaflet)
+  renderMap({byUF: aggregateByUF(FILTERED.filter(r=>!isInhouse(r)))});   // densidade por estado: só 3PL
+  renderPinMap();                                                        // pedidos 3PL: pinos por CEP (Leaflet)
   renderMapaSP();                                                        // Grande SP: só inhouse, mapa de calor por zona
+  renderPinMapInhouse();                                                  // pedidos inhouse: pinos por CEP (Leaflet)
   renderSla(A); renderVendasUF(A); renderCarriers(A); renderCarrierTrend(); renderTempoPeriodo(); renderPareto(); renderMatrix(); renderCep(); renderTransitoKpis(); renderTransito();
   document.getElementById("meta").innerHTML =
     '<b>'+fmtInt(A.totalUnique)+'</b> pedidos no filtro · atualizado '+new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
@@ -975,7 +1000,7 @@ function ufCentroid(uf, d){
 let PIN_LEAFLET_MAP = null, PIN_LEAFLET_LAYER = null;
 function initMapaPins(){
   if(PIN_LEAFLET_MAP || typeof L==="undefined") return;
-  PIN_LEAFLET_MAP = L.map("mapWrap", {scrollWheelZoom:false, attributionControl:false})
+  PIN_LEAFLET_MAP = L.map("mapWrapPins", {scrollWheelZoom:false, attributionControl:false})
     .setView([-15.6,-52.5], 4);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom:18, attribution:"&copy; OpenStreetMap"
@@ -989,7 +1014,7 @@ function cepLatLng(cepStr){
   return c ? {lat:c[0], lng:c[1], uf:info.uf, city:info.city} : null;
 }
 function jitter(v, amt){ return v + (Math.random()-0.5)*amt; }
-function renderMap(){
+function renderPinMap(){
   initMapaPins();
   if(!PIN_LEAFLET_MAP) return;   // Leaflet não carregou (ex: sem internet)
   PIN_LEAFLET_LAYER.clearLayers();
@@ -1009,6 +1034,79 @@ function renderMap(){
   const empty = document.getElementById("mapEmpty");
   if(empty) empty.style.display = plotted ? "none" : "";
   setTimeout(()=>{ if(PIN_LEAFLET_MAP) PIN_LEAFLET_MAP.invalidateSize(); }, 0);
+}
+let PIN_LEAFLET_MAP_IH = null, PIN_LEAFLET_LAYER_IH = null;
+function initMapaPinsInhouse(){
+  if(PIN_LEAFLET_MAP_IH || typeof L==="undefined") return;
+  PIN_LEAFLET_MAP_IH = L.map("mapWrapPinsInhouse", {scrollWheelZoom:false, attributionControl:false})
+    .setView([-23.575,-46.62], 10);   // inhouse opera principalmente na Grande SP
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom:18, attribution:"&copy; OpenStreetMap"
+  }).addTo(PIN_LEAFLET_MAP_IH);
+  L.control.attribution({prefix:false, position:"bottomright"}).addTo(PIN_LEAFLET_MAP_IH);
+  PIN_LEAFLET_LAYER_IH = L.layerGroup().addTo(PIN_LEAFLET_MAP_IH);
+}
+function renderPinMapInhouse(){
+  initMapaPinsInhouse();
+  if(!PIN_LEAFLET_MAP_IH) return;
+  PIN_LEAFLET_LAYER_IH.clearLayers();
+  const C = CONFIG.COLS;
+  let plotted = 0, semCep = 0;
+  const bounds = [];
+  FILTERED.forEach(r=>{
+    if(!isInhouse(r)) return;                   // mapa é só inhouse
+    const loc = cepLatLng(r[C.cep]);
+    if(!loc){ semCep++; return; }
+    const lat = jitter(loc.lat, 0.01), lng = jitter(loc.lng, 0.01);   // jitter menor: pedidos mais concentrados na Grande SP
+    const marker = L.marker([lat,lng]).addTo(PIN_LEAFLET_LAYER_IH);
+    const st = classifyStatus(r[C.status]);
+    const stTxt = st==="ontime" ? "No prazo" : (st==="late" ? "Atrasado" : "—");
+    marker.bindPopup(`<b>${esc(loc.city)} · ${esc(loc.uf)}</b><br>Inhouse<br>${stTxt}`);
+    bounds.push([lat,lng]);
+    plotted++;
+  });
+  if(bounds.length) PIN_LEAFLET_MAP_IH.fitBounds(bounds, {maxZoom:12, padding:[20,20]});
+  const empty = document.getElementById("mapEmptyInhouse");
+  if(empty) empty.style.display = plotted ? "none" : "";
+  setTimeout(()=>{ if(PIN_LEAFLET_MAP_IH) PIN_LEAFLET_MAP_IH.invalidateSize(); }, 0);
+}
+function renderMap(A){
+  const counts = Object.values(A.byUF).map(u=>u.count);
+  const max = counts.length ? Math.max(...counts) : 0;
+  const paths = Object.entries(BR_MAP.states).map(([uf,o])=>{
+    const u = A.byUF[uf];
+    const t = (max>0 && u) ? Math.pow(u.count/max, .72) : 0;
+    const fill = u ? lerpColor(MAP_LO, MAP_HI, t) : "var(--map-lo)";
+    return `<path data-uf="${uf}" d="${o.d}" style="fill:${fill}"></path>`;
+  }).join("");
+  const labels = Object.entries(BR_MAP.states).map(([uf,o])=>{
+    const u = A.byUF[uf];
+    const t = (max>0 && u) ? Math.pow(u.count/max, .72) : 0;
+    const [lx,ly] = ufCentroid(uf, o.d);
+    const light = t>0.55;
+    const col = light ? "#FFFFFF" : "#334155";
+    const halo = light ? "rgba(0,0,0,.28)" : "rgba(255,255,255,.75)";
+    return `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="13" font-weight="700" fill="${col}" text-anchor="middle" dominant-baseline="central" font-family="'Space Grotesk',sans-serif" style="pointer-events:none; paint-order:stroke; stroke:${halo}; stroke-width:2.5px; stroke-linejoin:round">${uf}</text>`;
+  }).join("");
+  const wrap = document.getElementById("mapWrap");
+  wrap.innerHTML = `<svg viewBox="${BR_MAP.viewBox}" role="img" aria-label="Mapa de densidade de pedidos por estado">${paths}${labels}</svg>`;
+  const tip = document.getElementById("tooltip");
+  wrap.querySelectorAll("path").forEach(p=>{
+    const uf = p.dataset.uf, u = A.byUF[uf];
+    p.addEventListener("mousemove", ev=>{
+      const on = u? u.on:0, la=u? u.late:0, base=on+la;
+      const sla = base? on/base*100 : NaN;
+      const media = (u&&u.dN)? u.dSum/u.dN : NaN;
+      tip.innerHTML = `<div class="tt-uf"><span>${uf}</span><span>${BR_MAP.states[uf].name}</span></div>
+        <div class="tt-row"><span>Pedidos</span><b>${fmtInt(u?u.count:0)}</b></div>
+        <div class="tt-row"><span>No prazo</span><b>${fmtPct(sla)}</b></div>
+        <div class="tt-row"><span>Média dias</span><b>${fmtDays(media)}</b></div>`;
+      tip.style.left = Math.min(ev.clientX+14, innerWidth-190)+"px";
+      tip.style.top = (ev.clientY+14)+"px"; tip.classList.add("show");
+      highlight(uf,true);
+    });
+    p.addEventListener("mouseleave", ()=>{ tip.classList.remove("show"); highlight(uf,false); });
+  });
 }
 const SP_ZONA_CENTROID = {};
 function zonaCentroid(nome, d){
