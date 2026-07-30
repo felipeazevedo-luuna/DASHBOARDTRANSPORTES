@@ -282,47 +282,47 @@
   <section class="kpis" id="kpis" style="display:none"></section>
 
   <div class="grid" id="grid" style="display:none">
-    <section class="panel full" style="margin-top:0">
+    <section class="panel" style="margin-top:0">
       <div class="panel-head">
         <h2>Densidade de pedidos por estado</h2>
-        <span class="hint">total no período filtrado · somente 3PL (transportadoras terceiras)</span>
+        <span class="hint">total no período filtrado · somente 3PL</span>
       </div>
       <div class="panel-body">
-        <div class="map-wrap" id="mapWrap" style="max-width:680px; margin:0 auto"></div>
-        <div class="legend" style="max-width:680px; margin:10px auto 0"><span>menos</span><div class="bar"></div><span>mais</span></div>
+        <div class="map-wrap" id="mapWrap" style="max-width:520px; margin:0 auto"></div>
+        <div class="legend" style="max-width:520px; margin:10px auto 0"><span>menos</span><div class="bar"></div><span>mais</span></div>
       </div>
     </section>
 
-    <section class="panel full">
+    <section class="panel" style="margin-top:0">
       <div class="panel-head">
         <h2>Mapa de pedidos · 3PL</h2>
-        <span class="hint">cada alfinete é 1 pedido, localizado pelo CEP · somente 3PL (transportadoras terceiras)</span>
+        <span class="hint">1 alfinete = 1 pedido, pelo CEP · somente 3PL</span>
       </div>
       <div class="panel-body">
-        <div class="map-wrap" id="mapWrapPins" style="height:480px; border-radius:14px; overflow:hidden; max-width:900px; margin:0 auto"></div>
+        <div class="map-wrap" id="mapWrapPins" style="height:420px; border-radius:14px; overflow:hidden"></div>
         <div class="empty" id="mapEmpty" style="display:none; margin-top:10px">Sem pedidos 3PL com CEP localizável no filtro atual.</div>
       </div>
     </section>
 
-    <section class="panel full">
+    <section class="panel">
       <div class="panel-head">
         <h2>Mapa de calor · Grande São Paulo</h2>
-        <span class="hint">somente pedidos inhouse (frota própria) · por zona/região via CEP</span>
+        <span class="hint">somente inhouse · por zona/região via CEP</span>
       </div>
       <div class="panel-body">
-        <div class="map-wrap" id="mapWrapSP" style="max-width:680px; margin:0 auto"></div>
-        <div class="legend" style="max-width:680px; margin:10px auto 0"><span>menos</span><div class="bar"></div><span>mais</span></div>
+        <div class="map-wrap" id="mapWrapSP" style="max-width:520px; margin:0 auto"></div>
+        <div class="legend" style="max-width:520px; margin:10px auto 0"><span>menos</span><div class="bar"></div><span>mais</span></div>
         <div class="empty" id="mapSPEmpty" style="display:none; margin-top:10px">Sem pedidos inhouse com CEP na Grande SP no filtro atual.</div>
       </div>
     </section>
 
-    <section class="panel full">
+    <section class="panel">
       <div class="panel-head">
         <h2>Mapa de pedidos · Inhouse</h2>
-        <span class="hint">cada alfinete é 1 pedido, localizado pelo CEP · somente inhouse (frota própria)</span>
+        <span class="hint">1 alfinete = 1 pedido, pelo CEP · somente inhouse</span>
       </div>
       <div class="panel-body">
-        <div class="map-wrap" id="mapWrapPinsInhouse" style="height:480px; border-radius:14px; overflow:hidden; max-width:900px; margin:0 auto"></div>
+        <div class="map-wrap" id="mapWrapPinsInhouse" style="height:420px; border-radius:14px; overflow:hidden"></div>
         <div class="empty" id="mapEmptyInhouse" style="display:none; margin-top:10px">Sem pedidos inhouse com CEP localizável no filtro atual.</div>
       </div>
     </section>
@@ -1028,7 +1028,7 @@ function renderPinMap(){
     const marker = L.marker([lat,lng]).addTo(PIN_LEAFLET_LAYER);
     const st = classifyStatus(r[C.status]);
     const stTxt = st==="ontime" ? "No prazo" : (st==="late" ? "Atrasado" : "—");
-    marker.bindPopup(`<b>${esc(loc.city)} · ${esc(loc.uf)}</b><br>${esc(r[C.transportadora]||"")}<br>${stTxt}`);
+    marker.bindTooltip(`<b>${esc(loc.city)} · ${esc(loc.uf)}</b><br>Pedido: ${esc(r[C.nf]||"—")}<br>${esc(r[C.transportadora]||"")}<br>${stTxt}`, {direction:"top", offset:[0,-8]});
     plotted++;
   });
   const empty = document.getElementById("mapEmpty");
@@ -1061,7 +1061,7 @@ function renderPinMapInhouse(){
     const marker = L.marker([lat,lng]).addTo(PIN_LEAFLET_LAYER_IH);
     const st = classifyStatus(r[C.status]);
     const stTxt = st==="ontime" ? "No prazo" : (st==="late" ? "Atrasado" : "—");
-    marker.bindPopup(`<b>${esc(loc.city)} · ${esc(loc.uf)}</b><br>Inhouse<br>${stTxt}`);
+    marker.bindTooltip(`<b>${esc(loc.city)} · ${esc(loc.uf)}</b><br>Pedido: ${esc(r[C.nf]||"—")}<br>Inhouse<br>${stTxt}`, {direction:"top", offset:[0,-8]});
     bounds.push([lat,lng]);
     plotted++;
   });
