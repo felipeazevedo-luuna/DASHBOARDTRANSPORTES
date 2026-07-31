@@ -288,8 +288,8 @@
         <span class="hint">total no período filtrado · somente 3PL</span>
       </div>
       <div class="panel-body">
-        <div class="map-wrap" id="mapWrap" style="max-width:520px; margin:0 auto"></div>
-        <div class="legend" style="max-width:520px; margin:10px auto 0"><span>menos</span><div class="bar"></div><span>mais</span></div>
+        <div class="map-wrap" id="mapWrap" style="height:420px; border-radius:14px; overflow:hidden"></div>
+        <div class="legend" style="margin:10px auto 0"><span>menos</span><div class="bar"></div><span>mais</span></div>
       </div>
     </section>
 
@@ -310,8 +310,8 @@
         <span class="hint">somente inhouse · por zona/região via CEP</span>
       </div>
       <div class="panel-body">
-        <div class="map-wrap" id="mapWrapSP" style="max-width:520px; margin:0 auto"></div>
-        <div class="legend" style="max-width:520px; margin:10px auto 0"><span>menos</span><div class="bar"></div><span>mais</span></div>
+        <div class="map-wrap" id="mapWrapSP" style="height:420px; border-radius:14px; overflow:hidden"></div>
+        <div class="legend" style="margin:10px auto 0"><span>menos</span><div class="bar"></div><span>mais</span></div>
         <div class="empty" id="mapSPEmpty" style="display:none; margin-top:10px">Sem pedidos inhouse com CEP na Grande SP no filtro atual.</div>
       </div>
     </section>
@@ -394,7 +394,7 @@
       <div class="panel-head">
         <h2>Motivo dos atrasos</h2>
         <div style="display:flex; align-items:center; gap:10px; margin-left:auto">
-          <span class="hint">Pareto · barras = NFs únicas, linha = % acumulado</span>
+          <span class="hint">Pareto · barras = pedidos únicos, linha = % acumulado</span>
           <div class="ms" id="msMotivo" style="min-width:200px"></div>
         </div>
       </div>
@@ -1013,7 +1013,38 @@ function cepLatLng(cepStr){
   const c = MUNI_CENTROIDS[normalize(info.city)+"|"+info.uf];
   return c ? {lat:c[0], lng:c[1], uf:info.uf, city:info.city} : null;
 }
-function jitter(v, amt){ return v + (Math.random()-0.5)*amt; }
+// coordenadas aproximadas do centro de cada zona (mesmas usadas como referência geográfica)
+const ZONA_LATLNG = {
+  "Osasco / Grande Osasco": [-23.5329,-46.7916],
+  "Zona Norte":             [-23.4890,-46.6255],
+  "Guarulhos / Alto Tietê": [-23.4543,-46.5333],
+  "Zona Oeste":             [-23.5300,-46.7080],
+  "Centro":                 [-23.5505,-46.6333],
+  "Zona Leste":             [-23.5450,-46.4750],
+  "Zona Sul":               [-23.6540,-46.7010],
+  "Grande ABC":             [-23.6639,-46.5383],
+};
+// deslocamento estável por CEP (mesmo CEP sempre cai no mesmo ponto, CEPs diferentes se separam)
+function cepOffset(cepStr, amt){
+  const digits = (cepStr||"").toString().replace(/\D/g,"");
+  let h1=0, h2=0;
+  for(let i=0;i<digits.length;i++){ h1=(h1*31+digits.charCodeAt(i))>>>0; h2=(h2*17+digits.charCodeAt(i)*7)>>>0; }
+  const dLat = ((h1%10000)/10000 - 0.5) * amt;
+  const dLng = ((h2%10000)/10000 - 0.5) * amt;
+  return [dLat, dLng];
+}
+// posição do pino: usa o centro da ZONA (Grande SP) quando reconhecida, senão o centro do município
+function pinLatLng(cepStr){
+  const zona = zonaGrandeSP(cepStr);
+  if(zona && ZONA_LATLNG[zona]){
+    const info = resolveCep(cepStr);
+    const [dLat,dLng] = cepOffset(cepStr, 0.035);   // ~3-4km de espalhamento dentro da zona
+    return {lat:ZONA_LATLNG[zona][0]+dLat, lng:ZONA_LATLNG[zona][1]+dLng, uf:info?info.uf:"SP", city:info?info.city:zona};
+  }
+  const loc = cepLatLng(cepStr); if(!loc) return null;
+  const [dLat,dLng] = cepOffset(cepStr, 0.02);
+  return {lat:loc.lat+dLat, lng:loc.lng+dLng, uf:loc.uf, city:loc.city};
+}
 function renderPinMap(){
   initMapaPins();
   if(!PIN_LEAFLET_MAP) return;   // Leaflet não carregou (ex: sem internet)
@@ -1022,10 +1053,9 @@ function renderPinMap(){
   let plotted = 0, semCep = 0;
   FILTERED.forEach(r=>{
     if(isInhouse(r)) return;                    // mapa é só 3PL
-    const loc = cepLatLng(r[C.cep]);
+    const loc = pinLatLng(r[C.cep]);
     if(!loc){ semCep++; return; }
-    const lat = jitter(loc.lat, 0.035), lng = jitter(loc.lng, 0.035);   // espalha pedidos da mesma cidade
-    const marker = L.marker([lat,lng]).addTo(PIN_LEAFLET_LAYER);
+    const marker = L.marker([loc.lat,loc.lng]).addTo(PIN_LEAFLET_LAYER);
     const st = classifyStatus(r[C.status]);
     const stTxt = st==="ontime" ? "No prazo" : (st==="late" ? "Atrasado" : "—");
     marker.bindTooltip(`<b>${esc(loc.city)} · ${esc(loc.uf)}</b><br>Pedido: ${esc(r[C.nf]||"—")}<br>${esc(r[C.transportadora]||"")}<br>${stTxt}`, {direction:"top", offset:[0,-8]});
@@ -1055,14 +1085,13 @@ function renderPinMapInhouse(){
   const bounds = [];
   FILTERED.forEach(r=>{
     if(!isInhouse(r)) return;                   // mapa é só inhouse
-    const loc = cepLatLng(r[C.cep]);
+    const loc = pinLatLng(r[C.cep]);
     if(!loc){ semCep++; return; }
-    const lat = jitter(loc.lat, 0.01), lng = jitter(loc.lng, 0.01);   // jitter menor: pedidos mais concentrados na Grande SP
-    const marker = L.marker([lat,lng]).addTo(PIN_LEAFLET_LAYER_IH);
+    const marker = L.marker([loc.lat,loc.lng]).addTo(PIN_LEAFLET_LAYER_IH);
     const st = classifyStatus(r[C.status]);
     const stTxt = st==="ontime" ? "No prazo" : (st==="late" ? "Atrasado" : "—");
     marker.bindTooltip(`<b>${esc(loc.city)} · ${esc(loc.uf)}</b><br>Pedido: ${esc(r[C.nf]||"—")}<br>Inhouse<br>${stTxt}`, {direction:"top", offset:[0,-8]});
-    bounds.push([lat,lng]);
+    bounds.push([loc.lat,loc.lng]);
     plotted++;
   });
   if(bounds.length) PIN_LEAFLET_MAP_IH.fitBounds(bounds, {maxZoom:12, padding:[20,20]});
@@ -1089,7 +1118,7 @@ function renderMap(A){
     return `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="13" font-weight="700" fill="${col}" text-anchor="middle" dominant-baseline="central" font-family="'Space Grotesk',sans-serif" style="pointer-events:none; paint-order:stroke; stroke:${halo}; stroke-width:2.5px; stroke-linejoin:round">${uf}</text>`;
   }).join("");
   const wrap = document.getElementById("mapWrap");
-  wrap.innerHTML = `<svg viewBox="${BR_MAP.viewBox}" role="img" aria-label="Mapa de densidade de pedidos por estado">${paths}${labels}</svg>`;
+  wrap.innerHTML = `<svg viewBox="${BR_MAP.viewBox}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block" role="img" aria-label="Mapa de densidade de pedidos por estado">${paths}${labels}</svg>`;
   const tip = document.getElementById("tooltip");
   wrap.querySelectorAll("path").forEach(p=>{
     const uf = p.dataset.uf, u = A.byUF[uf];
@@ -1142,7 +1171,7 @@ function renderMapaSP(){
     return `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="11.5" font-weight="700" fill="${col}" text-anchor="middle" dominant-baseline="central" font-family="'Space Grotesk',sans-serif" style="pointer-events:none; paint-order:stroke; stroke:${halo}; stroke-width:2.5px; stroke-linejoin:round">${esc(nome)}</text>`;
   }).join("");
   const wrap = document.getElementById("mapWrapSP");
-  wrap.innerHTML = `<svg viewBox="${SP_ZONA_SVG.viewBox}" role="img" aria-label="Mapa de calor Grande São Paulo - inhouse">${paths}${labels}</svg>`;
+  wrap.innerHTML = `<svg viewBox="${SP_ZONA_SVG.viewBox}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block" role="img" aria-label="Mapa de calor Grande São Paulo - inhouse">${paths}${labels}</svg>`;
   const tip = document.getElementById("tooltip");
   wrap.querySelectorAll("path").forEach(p=>{
     const nome = p.dataset.zona, z = byZona[nome];
@@ -1441,14 +1470,20 @@ function renderPareto(){
   const C=CONFIG.COLS;
   const esc=s=>(s||"").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const cnt={};
-  const seenNf={};   // motivo → conjunto de NFs já contabilizadas (count unique por NF)
+  const seenKey={};   // motivo → conjunto de identificadores já contabilizados (count unique)
   FILTERED.forEach(r=>{
     const m=(r[C.motivo]||"").toString().trim(); if(!m) return;
-    const nf=(r[C.nf]||"").toString().trim();
-    if(nf){
-      if(!seenNf[m]) seenNf[m]=new Set();
-      if(seenNf[m].has(nf)) return;   // NF repetida no mesmo motivo → não conta de novo
-      seenNf[m].add(nf);
+    // identificador único do pedido: NF quando existe; senão CEP+data (cobre inhouse, que normalmente não tem NF)
+    let key=(r[C.nf]||"").toString().trim();
+    if(!key){
+      const cep=(r[C.cep]||"").toString().trim();
+      const dt=(r[C.dataCriacao]||r[C.previsao]||"").toString().trim();
+      if(cep && dt) key="CEP:"+cep+"|"+dt;
+    }
+    if(key){
+      if(!seenKey[m]) seenKey[m]=new Set();
+      if(seenKey[m].has(key)) return;   // pedido repetido no mesmo motivo → não conta de novo
+      seenKey[m].add(key);
     }
     cnt[m]=(cnt[m]||0)+1;
   });
@@ -1484,13 +1519,13 @@ function renderPareto(){
   items.forEach((x,k)=>{ svg+=`<rect class="pareto-hit" data-k="${k}" x="${(ml+slot*k).toFixed(1)}" y="${mt}" width="${slot.toFixed(1)}" height="${ph}" fill="transparent"/>`; });
   svg+=`</svg>`;
   host.innerHTML=svg;
-  legend.innerHTML=`<div class="it"><span class="ln" style="background:${BLUE}; height:12px; width:12px; border-radius:3px"></span>NFs únicas (atrasos)</div>
+  legend.innerHTML=`<div class="it"><span class="ln" style="background:${BLUE}; height:12px; width:12px; border-radius:3px"></span>Pedidos únicos (atrasos)</div>
     <div class="it"><span class="ln" style="background:${RED}"></span>% acumulado</div>`;
   const tip=document.getElementById("tooltip");
   host.querySelectorAll(".pareto-hit").forEach(el=>{
     el.addEventListener("mousemove", ev=>{ const x=items[+el.dataset.k];
       tip.innerHTML=`<div class="tt-uf"><span>${esc(x.motivo)}</span></div>
-        <div class="tt-row"><span>NFs únicas</span><b>${fmtInt(x.c)}</b></div>
+        <div class="tt-row"><span>Pedidos únicos</span><b>${fmtInt(x.c)}</b></div>
         <div class="tt-row"><span>% do total</span><b>${fmtPct(x.c/total*100)}</b></div>
         <div class="tt-row"><span>Acumulado</span><b>${fmtPct(x.cum)}</b></div>`;
       tip.style.left=Math.min(ev.clientX+14,innerWidth-220)+"px"; tip.style.top=(ev.clientY+14)+"px"; tip.classList.add("show");
