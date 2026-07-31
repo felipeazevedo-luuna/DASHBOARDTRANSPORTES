@@ -1025,10 +1025,17 @@ const ZONA_LATLNG = {
   "Grande ABC":             [-23.6639,-46.5383],
 };
 // deslocamento estável por CEP (mesmo CEP sempre cai no mesmo ponto, CEPs diferentes se separam)
+function fnv1a(s){
+  let h = 0x811c9dc5;
+  for(let i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return h>>>0;
+}
 function cepOffset(cepStr, amt){
   const digits = (cepStr||"").toString().replace(/\D/g,"");
-  let h1=0, h2=0;
-  for(let i=0;i<digits.length;i++){ h1=(h1*31+digits.charCodeAt(i))>>>0; h2=(h2*17+digits.charCodeAt(i)*7)>>>0; }
+  if(!digits) return [0,0];
+  // duas sementes independentes (ordens/sufixos diferentes) pra latitude e longitude não ficarem correlacionadas
+  const h1 = fnv1a(digits+"|lat");
+  const h2 = fnv1a(digits.split("").reverse().join("")+"|lng");
   const dLat = ((h1%10000)/10000 - 0.5) * amt;
   const dLng = ((h2%10000)/10000 - 0.5) * amt;
   return [dLat, dLng];
