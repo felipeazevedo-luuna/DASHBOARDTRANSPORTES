@@ -639,6 +639,13 @@ function parseDate(v){
   return isNaN(d) ? null : d;
 }
 function dOnly(d){ return d ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : null; }
+function mondayOf(d){   // segunda-feira da semana que contém a data (semana começa na segunda)
+  const dt = dOnly(d); if(!dt) return null;
+  const day = dt.getDay();               // 0=dom,1=seg,...,6=sab
+  const diff = (day===0 ? 6 : day-1);    // dias desde a última segunda
+  const mon = new Date(dt); mon.setDate(dt.getDate()-diff);
+  return mon;
+}
 function fmtInt(n){ return (n||0).toLocaleString("pt-BR"); }
 function fmtPct(n){ return isFinite(n) ? n.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})+"%" : "—"; }
 function fmtDays(n){ return isFinite(n) ? Math.round(n).toLocaleString("pt-BR") : "—"; }
@@ -720,8 +727,11 @@ function initFilters(){
   motivoOptions = [...motivoSet].sort((a,b)=> a.localeCompare(b,"pt-BR"));
 
   const s=document.getElementById("dStart"), e=document.getElementById("dEnd");
-  s.value = toISO(minD); e.value = toISO(maxD);
-  F.dStart = minD ? dOnly(minD) : null; F.dEnd = maxD ? dOnly(maxD) : null;
+  // ao abrir o site, mostra só a última semana (segunda-feira até a data mais recente) — não o histórico todo
+  let initStart = maxD ? mondayOf(maxD) : minD;
+  if(minD && initStart && initStart < minD) initStart = minD;   // não passar do início dos dados
+  s.value = toISO(initStart); e.value = toISO(maxD);
+  F.dStart = initStart ? dOnly(initStart) : null; F.dEnd = maxD ? dOnly(maxD) : null;
   s.onchange = ()=>{ F.dStart = s.value ? parseDate(s.value) : null; render(); };
   e.onchange = ()=>{ F.dEnd = e.value ? parseDate(e.value) : null; render(); };
 
@@ -1041,14 +1051,74 @@ function cepOffset(cepStr, amt){
   return [dLat, dLng];
 }
 // posição do pino: usa o centro da ZONA (Grande SP) quando reconhecida, senão o centro do município
+/* ---- Geocodificação real de CEP (BrasilAPI) — usada quando disponível, com cache ---- */
+const CEP_GEO_CACHE = {};        // "12345678" -> {lat,lng} | null (null = já tentou, sem coordenada)
+const CEP_GEO_STORAGE_KEY = "cepGeoCache_v1";
+(function loadGeoCache(){
+  try{ const raw = localStorage.getItem(CEP_GEO_STORAGE_KEY); if(raw) Object.assign(CEP_GEO_CACHE, JSON.parse(raw)); }
+  catch(e){}
+})();
+let geoCacheDirty = false, geoSaveTimer = null;
+function scheduleSaveGeoCache(){
+  geoCacheDirty = true;
+  if(geoSaveTimer) return;
+  geoSaveTimer = setTimeout(()=>{
+    geoSaveTimer = null;
+    if(!geoCacheDirty) return;
+    geoCacheDirty = false;
+    try{ localStorage.setItem(CEP_GEO_STORAGE_KEY, JSON.stringify(CEP_GEO_CACHE)); }catch(e){}
+  }, 1500);
+}
+function cepDigits8(cepStr){
+  const d = (cepStr||"").toString().replace(/\D/g,"");
+  return d.length===8 ? d : null;
+}
+async function fetchCepGeo(cep8){
+  if(CEP_GEO_CACHE[cep8]!==undefined) return CEP_GEO_CACHE[cep8];
+  try{
+    const resp = await fetch("https://brasilapi.com.br/api/cep/v2/"+cep8);
+    if(!resp.ok){ CEP_GEO_CACHE[cep8]=null; scheduleSaveGeoCache(); return null; }
+    const data = await resp.json();
+    const c = data && data.location && data.location.coordinates;
+    const lat = c && parseFloat(c.latitude), lng = c && parseFloat(c.longitude);
+    const g = (isFinite(lat) && isFinite(lng) && lat && lng) ? {lat, lng} : null;
+    CEP_GEO_CACHE[cep8] = g; scheduleSaveGeoCache();
+    return g;
+  }catch(e){
+    CEP_GEO_CACHE[cep8] = null; scheduleSaveGeoCache();
+    return null;
+  }
+}
+// busca coordenadas reais em segundo plano (com limite de requisições simultâneas) e move os pinos quando chega
+async function refineMarkersWithGeo(markerList){   // [{cep8, marker}]
+  const uniqueCeps = [...new Set(markerList.map(x=>x.cep8).filter(c=>c && CEP_GEO_CACHE[c]===undefined))];
+  if(!uniqueCeps.length) return;
+  const CONCURRENCY = 5;
+  let idx = 0;
+  async function worker(){
+    while(idx < uniqueCeps.length){
+      const cep8 = uniqueCeps[idx++];
+      await fetchCepGeo(cep8);
+    }
+  }
+  await Promise.all(Array.from({length: Math.min(CONCURRENCY, uniqueCeps.length)}, worker));
+  markerList.forEach(({cep8, marker})=>{
+    const g = cep8 ? CEP_GEO_CACHE[cep8] : null;
+    if(g) marker.setLatLng([g.lat, g.lng]);
+  });
+}
 function pinLatLng(cepStr){
+  const cep8 = cepDigits8(cepStr);
+  const real = cep8 ? CEP_GEO_CACHE[cep8] : null;   // coordenada real já conhecida (cache)
   const zona = zonaGrandeSP(cepStr);
   if(zona && ZONA_LATLNG[zona]){
     const info = resolveCep(cepStr);
-    const [dLat,dLng] = cepOffset(cepStr, 0.035);   // ~3-4km de espalhamento dentro da zona
+    if(real) return {lat:real.lat, lng:real.lng, uf:info?info.uf:"SP", city:info?info.city:zona, real:true};
+    const [dLat,dLng] = cepOffset(cepStr, 0.035);   // ~3-4km de espalhamento dentro da zona (estimativa)
     return {lat:ZONA_LATLNG[zona][0]+dLat, lng:ZONA_LATLNG[zona][1]+dLng, uf:info?info.uf:"SP", city:info?info.city:zona};
   }
   const loc = cepLatLng(cepStr); if(!loc) return null;
+  if(real) return {lat:real.lat, lng:real.lng, uf:loc.uf, city:loc.city, real:true};
   const [dLat,dLng] = cepOffset(cepStr, 0.02);
   return {lat:loc.lat+dLat, lng:loc.lng+dLng, uf:loc.uf, city:loc.city};
 }
@@ -1058,6 +1128,7 @@ function renderPinMap(){
   PIN_LEAFLET_LAYER.clearLayers();
   const C = CONFIG.COLS;
   let plotted = 0, semCep = 0;
+  const toRefine = [];
   FILTERED.forEach(r=>{
     if(isInhouse(r)) return;                    // mapa é só 3PL
     const loc = pinLatLng(r[C.cep]);
@@ -1066,11 +1137,13 @@ function renderPinMap(){
     const st = classifyStatus(r[C.status]);
     const stTxt = st==="ontime" ? "No prazo" : (st==="late" ? "Atrasado" : "—");
     marker.bindTooltip(`<b>${esc(loc.city)} · ${esc(loc.uf)}</b><br>Pedido: ${esc(r[C.nf]||"—")}<br>${esc(r[C.transportadora]||"")}<br>${stTxt}`, {direction:"top", offset:[0,-8]});
+    toRefine.push({cep8: cepDigits8(r[C.cep]), marker});
     plotted++;
   });
   const empty = document.getElementById("mapEmpty");
   if(empty) empty.style.display = plotted ? "none" : "";
   setTimeout(()=>{ if(PIN_LEAFLET_MAP) PIN_LEAFLET_MAP.invalidateSize(); }, 0);
+  refineMarkersWithGeo(toRefine);   // ajusta pra localização real assim que a API responder, sem travar o render
 }
 let PIN_LEAFLET_MAP_IH = null, PIN_LEAFLET_LAYER_IH = null;
 function initMapaPinsInhouse(){
@@ -1090,6 +1163,7 @@ function renderPinMapInhouse(){
   const C = CONFIG.COLS;
   let plotted = 0, semCep = 0;
   const bounds = [];
+  const toRefine = [];
   FILTERED.forEach(r=>{
     if(!isInhouse(r)) return;                   // mapa é só inhouse
     const loc = pinLatLng(r[C.cep]);
@@ -1099,12 +1173,14 @@ function renderPinMapInhouse(){
     const stTxt = st==="ontime" ? "No prazo" : (st==="late" ? "Atrasado" : "—");
     marker.bindTooltip(`<b>${esc(loc.city)} · ${esc(loc.uf)}</b><br>Pedido: ${esc(r[C.nf]||"—")}<br>Inhouse<br>${stTxt}`, {direction:"top", offset:[0,-8]});
     bounds.push([loc.lat,loc.lng]);
+    toRefine.push({cep8: cepDigits8(r[C.cep]), marker});
     plotted++;
   });
   if(bounds.length) PIN_LEAFLET_MAP_IH.fitBounds(bounds, {maxZoom:12, padding:[20,20]});
   const empty = document.getElementById("mapEmptyInhouse");
   if(empty) empty.style.display = plotted ? "none" : "";
   setTimeout(()=>{ if(PIN_LEAFLET_MAP_IH) PIN_LEAFLET_MAP_IH.invalidateSize(); }, 0);
+  refineMarkersWithGeo(toRefine);   // ajusta pra localização real assim que a API responder, sem travar o render
 }
 function renderMap(A){
   const counts = Object.values(A.byUF).map(u=>u.count);
