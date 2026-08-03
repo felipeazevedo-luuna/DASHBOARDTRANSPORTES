@@ -424,6 +424,23 @@
 
     <section class="panel full">
       <div class="panel-head">
+        <h2>Motivos de atraso <span id="motivoGeoTitleDim" style="font-weight:500;color:var(--muted);font-size:14px">por estado</span></h2>
+        <div style="display:flex; align-items:center; gap:10px; margin-left:auto; flex-wrap:wrap">
+          <span class="hint">barras empilhadas · cor = motivo · pedidos únicos atrasados</span>
+          <div class="seg" id="segMotivoGeoDim">
+            <button type="button" data-d="uf" class="on">Por UF</button>
+            <button type="button" data-d="regiao">Por região</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="trend-legend" id="motivoGeoLegend"></div>
+        <div class="trend-wrap" id="motivoGeoChart"></div>
+      </div>
+    </section>
+
+    <section class="panel full">
+      <div class="panel-head">
         <h2>Matriz de desvio · região / UF / capital-interior</h2>
         <span class="hint">dias entre entrega e previsão</span>
       </div>
@@ -618,7 +635,7 @@ let RAW = [];        // linhas cruas (arrays por índice)
 let FILTERED = [];
 let lastAgg = null;  // último agregado (para toggles re-renderizarem sem recalcular)
 let RAW_T = [], HDR_T = [], T_ERR = null;   // pedidos em trânsito (aba "Rastreamento")
-const F = { dStart:null, dEnd:null, semanas:new Set(), transp:new Set(), motivos:new Set(), periodo:"semana", dim:"geral", slaDim:"uf" };
+const F = { dStart:null, dEnd:null, semanas:new Set(), transp:new Set(), motivos:new Set(), periodo:"semana", dim:"geral", slaDim:"uf", motivoGeoDim:"uf" };
 let semanaOptions = [], transpOptions = [], motivoOptions = [];
 
 /* ---------- helpers ---------- */
@@ -786,6 +803,13 @@ function initFilters(){
     segSla.dataset.wired = "1";
     segSla.querySelectorAll("button").forEach(b=>{
       b.onclick = ()=>{ F.slaDim = b.dataset.d; segSla.querySelectorAll("button").forEach(x=>x.classList.toggle("on", x===b)); renderSla(lastAgg); };
+    });
+  }
+  const segMG = document.getElementById("segMotivoGeoDim");
+  if(segMG && !segMG.dataset.wired){
+    segMG.dataset.wired = "1";
+    segMG.querySelectorAll("button").forEach(b=>{
+      b.onclick = ()=>{ F.motivoGeoDim = b.dataset.d; segMG.querySelectorAll("button").forEach(x=>x.classList.toggle("on", x===b)); renderMotivoGeo(); };
     });
   }
 
@@ -1001,7 +1025,7 @@ function render(){
   renderPinMap();                                                        // pedidos 3PL: pinos por CEP (Leaflet)
   renderMapaSP();                                                        // Grande SP: só inhouse, mapa de calor por zona
   renderPinMapInhouse();                                                  // pedidos inhouse: pinos por CEP (Leaflet)
-  renderSla(A); renderVendasUF(A); renderCanalUF(); renderCarriers(A); renderCarrierTrend(); renderTempoPeriodo(); renderPareto(); renderMatrix(); renderCep(); renderTransitoKpis(); renderTransito();
+  renderSla(A); renderVendasUF(A); renderCanalUF(); renderCarriers(A); renderCarrierTrend(); renderTempoPeriodo(); renderPareto(); renderMotivoGeo(); renderMatrix(); renderCep(); renderTransitoKpis(); renderTransito();
   document.getElementById("meta").innerHTML =
     '<b>'+fmtInt(A.totalUnique)+'</b> pedidos no filtro · atualizado '+new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 }
@@ -1472,6 +1496,95 @@ function renderCanalUF(){
       tip.innerHTML = `<div class="tt-uf"><span>${uf}</span><span>${esc(canal)}</span></div>
         <div class="tt-row"><span>Pedidos</span><b>${fmtInt(v)}</b></div>
         <div class="tt-row"><span>% do estado</span><b>${fmtPct(v/total_uf*100)}</b></div>`;
+      tip.style.left = Math.min(ev.clientX+14, innerWidth-220)+"px";
+      tip.style.top = (ev.clientY+14)+"px"; tip.classList.add("show");
+    });
+    seg.addEventListener("mouseleave", ()=> tip.classList.remove("show"));
+  });
+}
+
+/* ---- Motivos de atraso por estado / região (barras empilhadas) ---- */
+const MOTIVO_PALETTE = ['#12A150','#E8963A','#E5484D','#3B76F0','#0E9AA7','#F59E0B','#8E5AD8','#2E7D32','#D48806','#B44D9E','#1F6FB2','#C77DBB','#6B7A8F','#9333EA','#0891B2'];
+function renderMotivoGeo(){
+  const C = CONFIG.COLS;
+  const byRegiao = F.motivoGeoDim==="regiao";
+  const host = document.getElementById("motivoGeoChart"), legend = document.getElementById("motivoGeoLegend");
+  const titleDim = document.getElementById("motivoGeoTitleDim"); if(titleDim) titleDim.textContent = byRegiao ? "por região" : "por estado";
+
+  const byCat = {}, motivoSet = new Set(); let total = 0;
+  const seenKey = {};   // cat|motivo -> Set de identificadores de pedido (dedup)
+  FILTERED.forEach(r=>{
+    const m = (r[C.motivo]||"").toString().trim(); if(!m) return;   // só pedidos com motivo de atraso
+    const cat = byRegiao ? regiaoDe(r) : toUF(r[C.uf]); if(!cat) return;
+    // identificador único do pedido: NF quando existe; senão CEP+data (cobre inhouse sem NF)
+    let key=(r[C.nf]||"").toString().trim();
+    if(!key){
+      const cep=(r[C.cep]||"").toString().trim();
+      const dt=(r[C.dataCriacao]||r[C.previsao]||"").toString().trim();
+      if(cep && dt) key="CEP:"+cep+"|"+dt;
+    }
+    const dedupKey = cat+"|"+m;
+    if(key){
+      if(!seenKey[dedupKey]) seenKey[dedupKey]=new Set();
+      if(seenKey[dedupKey].has(key)) return;   // pedido repetido no mesmo motivo/cat → não conta de novo
+      seenKey[dedupKey].add(key);
+    }
+    motivoSet.add(m);
+    const g = byCat[cat] || (byCat[cat] = {});
+    g[m] = (g[m]||0) + 1;
+    total++;
+  });
+  if(!total){ host.innerHTML=""; legend.innerHTML=`<span style="color:var(--muted);font-size:12px">Sem motivos de atraso no filtro atual.</span>`; return; }
+
+  const motivos = [...motivoSet].sort((a,b)=> a.localeCompare(b,"pt-BR"));
+  const cor = {}; motivos.forEach((m,i)=> cor[m]=MOTIVO_PALETTE[i%MOTIVO_PALETTE.length]);
+
+  let cats = Object.keys(byCat);
+  if(byRegiao) cats.sort((a,b)=> (REGIOES_ORD.indexOf(a)-REGIOES_ORD.indexOf(b)) || a.localeCompare(b,"pt-BR"));
+  else cats.sort((a,b)=> Object.values(byCat[b]).reduce((s,v)=>s+v,0) - Object.values(byCat[a]).reduce((s,v)=>s+v,0));
+
+  const n = cats.length, W = Math.max(560, n*(byRegiao?110:56)), H = 420, ml=44, mr=16, mt=24, mb=40, pw=W-ml-mr, ph=H-mt-mb;
+  const slot = pw/n, barW = Math.min(slot*0.6, byRegiao?80:48);
+  const totalOf = cat => Object.values(byCat[cat]).reduce((s,v)=>s+v,0);
+  const maxTotal = Math.max(...cats.map(totalOf));
+  const niceMax = Math.max(5, Math.ceil(maxTotal/5)*5);
+  const y = v => mt+ph*(1-v/niceMax), cx = k => ml+slot*(k+0.5);
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Motivos de atraso ${byRegiao?'por região':'por estado'}">`;
+  for(let t=0;t<=4;t++){ const gv=Math.round(niceMax*t/4), gy=y(gv);
+    svg += `<line x1="${ml}" y1="${gy.toFixed(1)}" x2="${W-mr}" y2="${gy.toFixed(1)}" stroke="#EDF1F7"/>`;
+    svg += `<text x="${ml-7}" y="${(gy+3).toFixed(1)}" font-size="10" fill="#8A97A8" text-anchor="end" font-family="'IBM Plex Mono',monospace">${gv}</text>`;
+  }
+  const tip = document.getElementById("tooltip");
+  cats.forEach((cat,k)=>{
+    const bx = cx(k)-barW/2;
+    const total_cat = totalOf(cat);
+    let acc = 0;
+    motivos.forEach(m=>{
+      const v = byCat[cat][m]; if(!v) return;
+      const y0 = y(acc), y1 = y(acc+v), h = y0-y1;
+      const tall = h>=13;
+      svg += `<rect class="motivogeo-seg" data-cat="${esc(cat)}" data-motivo="${esc(m)}" data-v="${v}" x="${bx.toFixed(1)}" y="${y1.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${cor[m]}" stroke="#fff" stroke-width="0.6"></rect>`;
+      if(tall) svg += `<text x="${cx(k).toFixed(1)}" y="${((y0+y1)/2+3.5).toFixed(1)}" font-size="10" font-weight="600" fill="#fff" text-anchor="middle" font-family="Inter,sans-serif" style="pointer-events:none">${fmtInt(v)}</text>`;
+      acc += v;
+    });
+    svg += `<text x="${cx(k).toFixed(1)}" y="${(y(total_cat)-8).toFixed(1)}" font-size="10.5" font-weight="700" fill="#0E1B2E" text-anchor="middle" font-family="'Space Grotesk',sans-serif">${fmtInt(total_cat)}</text>`;
+    svg += `<text x="${cx(k).toFixed(1)}" y="${(mt+ph+16).toFixed(1)}" font-size="10.5" font-weight="600" fill="#0E1B2E" text-anchor="middle" font-family="Inter,sans-serif">${esc(cat)}</text>`;
+  });
+  svg += `</svg>`;
+  host.innerHTML = svg;
+
+  legend.innerHTML = motivos.map(m=>
+    `<div class="it"><span class="ln" style="background:${cor[m]}; height:12px; width:12px; border-radius:3px"></span>${esc(m)}</div>`
+  ).join("");
+
+  host.querySelectorAll(".motivogeo-seg").forEach(seg=>{
+    const cat=seg.dataset.cat, m=seg.dataset.motivo, v=+seg.dataset.v;
+    const total_cat = totalOf(cat);
+    seg.addEventListener("mousemove", ev=>{
+      tip.innerHTML = `<div class="tt-uf"><span>${esc(cat)}</span><span>${esc(m)}</span></div>
+        <div class="tt-row"><span>Atrasos</span><b>${fmtInt(v)}</b></div>
+        <div class="tt-row"><span>% do ${byRegiao?'região':'estado'}</span><b>${fmtPct(v/total_cat*100)}</b></div>`;
       tip.style.left = Math.min(ev.clientX+14, innerWidth-220)+"px";
       tip.style.top = (ev.clientY+14)+"px"; tip.classList.add("show");
     });
