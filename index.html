@@ -388,7 +388,7 @@
       </div>
       <div class="panel-body">
         <div class="trend-legend" id="canalUfLegend"></div>
-        <div class="trend-wrap" id="canalUfChart"></div>
+        <div class="trend-wrap" id="canalUfChart" style="height:460px"></div>
       </div>
     </section>
 
@@ -406,7 +406,7 @@
       </div>
       <div class="panel-body">
         <div class="trend-legend" id="canalIhLegend"></div>
-        <div class="trend-wrap" id="canalIhChart"></div>
+        <div class="trend-wrap" id="canalIhChart" style="height:460px"></div>
       </div>
     </section>
 
@@ -478,7 +478,7 @@
       </div>
       <div class="panel-body">
         <div class="trend-legend" id="motivoGeoLegend"></div>
-        <div class="trend-wrap" id="motivoGeoChart"></div>
+        <div class="trend-wrap" id="motivoGeoChart" style="height:460px"></div>
       </div>
     </section>
 
@@ -1762,7 +1762,7 @@ function stackedBarSVG(cats, opts){
     body += `<text x="${cx(k).toFixed(1)}" y="${(mt+ph+17).toFixed(1)}" font-size="11" font-weight="600" fill="#5B6B82" text-anchor="middle" font-family="Inter,sans-serif">${esc(c.label)}</text>`;
   });
 
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="${esc(opts.aria||'')}"><defs>${defs}</defs>${body}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:100%" role="img" aria-label="${esc(opts.aria||'')}"><defs>${defs}</defs>${body}</svg>`;
 }
 
 const CANAL_PALETTE = ['#3B76F0','#E5484D','#E8963A','#12A150','#8E5AD8','#0E9AA7','#D48806','#B44D9E','#2E7D32','#1F6FB2','#C77DBB','#6B7A8F'];
