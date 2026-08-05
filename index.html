@@ -569,6 +569,7 @@ const CONFIG = {
     previsao:    1,          // B  previsão de entrega
     canal:       4,          // E  canal de venda
     dataCriacao: 3,          // D  data de criação
+    docname:     6,          // G  nome do documento (identificador único do pedido)
     status:      9,          // J  on time / late
     nf:          10,         // K  número da NF
     transportadora: 11,      // L
@@ -1029,11 +1030,13 @@ function aggregate(){
 // identificador único de um pedido: NF quando existe; senão CEP+data (cobre inhouse sem NF)
 function pedidoKey(r){
   const C = CONFIG.COLS;
+  const doc = (r[C.docname]||"").toString().trim();
+  if(doc) return "DOC:"+doc;                    // identificador principal: docname (coluna G)
   let k = (r[C.nf]||"").toString().trim();
-  if(k) return k;
+  if(k) return "NF:"+k;                          // fallback: NF
   const cep=(r[C.cep]||"").toString().trim();
   const dt=(r[C.dataCriacao]||r[C.previsao]||"").toString().trim();
-  return (cep && dt) ? "CEP:"+cep+"|"+dt : null;
+  return (cep && dt) ? "CEP:"+cep+"|"+dt : null; // último recurso: CEP+data
 }
 function aggregateByUF(rows){
   const C = CONFIG.COLS; const byUF = {};
@@ -1454,19 +1457,31 @@ function initMapaPinsInhouse(){
   PIN_LEAFLET_LAYER_IH = L.layerGroup().addTo(PIN_LEAFLET_MAP_IH);
 }
 // cria (ou recria) a camada de zonas pastel por cima do mapa
+// desenha com L.polygon e coordenadas [lat,lng] explícitas (evita qualquer confusão de ordem do L.geoJSON)
+function geojsonToLatLngs(geom){
+  // Polygon: [ [ [lng,lat], ... ], (buracos) ]   MultiPolygon: [ Polygon, Polygon, ... ]
+  const ringToLatLng = ring => ring.map(c => [c[1], c[0]]);   // [lng,lat] -> [lat,lng]
+  if(geom.type==="Polygon")      return geom.coordinates.map(ringToLatLng);
+  if(geom.type==="MultiPolygon") return geom.coordinates.map(poly => poly.map(ringToLatLng));
+  return [];
+}
 function ensureZonaOverlay(){
   if(!PIN_LEAFLET_MAP_IH || typeof L==="undefined" || typeof ZONAS_GEOJSON==="undefined") return;
   if(SP_ZONA_OVERLAY && PIN_LEAFLET_MAP_IH.hasLayer(SP_ZONA_OVERLAY)) return;   // já está lá
-  SP_ZONA_OVERLAY = L.geoJSON(ZONAS_GEOJSON, {
-    style: f=>({
-      color: ZONA_PASTEL[f.properties.zona] || "#AAB4C2",   // borda
-      weight: 1.5, opacity: 0.9,
-      fillColor: ZONA_PASTEL[f.properties.zona] || "#AAB4C2",
-      fillOpacity: 0.38                                       // translúcido: dá pra ver o mapa embaixo
-    }),
-    interactive: false
-  }).addTo(PIN_LEAFLET_MAP_IH);
-  if(SP_ZONA_OVERLAY.bringToBack) SP_ZONA_OVERLAY.bringToBack();   // fica atrás dos alfinetes
+  SP_ZONA_OVERLAY = L.layerGroup();
+  ZONAS_GEOJSON.features.forEach(f=>{
+    const cor = ZONA_PASTEL[f.properties.zona] || "#AAB4C2";
+    const latlngs = geojsonToLatLngs(f.geometry);
+    const poly = L.polygon(latlngs, {
+      color: cor, weight: 2, opacity: 0.95,
+      fillColor: cor, fillOpacity: 0.45,     // translúcido: dá pra ver o mapa embaixo
+      interactive: false
+    });
+    poly.bindTooltip(f.properties.zona, {sticky:true, className:"zona-tip"});
+    SP_ZONA_OVERLAY.addLayer(poly);
+  });
+  SP_ZONA_OVERLAY.addTo(PIN_LEAFLET_MAP_IH);
+  if(SP_ZONA_OVERLAY.eachLayer) SP_ZONA_OVERLAY.eachLayer(l=>{ if(l.bringToBack) l.bringToBack(); });
 }
 function renderPinMapInhouse(){
   initMapaPinsInhouse();
