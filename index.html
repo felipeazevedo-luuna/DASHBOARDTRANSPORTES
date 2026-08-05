@@ -1450,27 +1450,28 @@ function initMapaPinsInhouse(){
     maxZoom:18, attribution:"&copy; OpenStreetMap"
   }).addTo(PIN_LEAFLET_MAP_IH);
   L.control.attribution({prefix:false, position:"bottomright"}).addTo(PIN_LEAFLET_MAP_IH);
-  // camada de zonas em cores pastel (por cima do mapa, mas translúcida)
-  if(typeof ZONAS_GEOJSON!=="undefined"){
-    SP_ZONA_OVERLAY = L.geoJSON(ZONAS_GEOJSON, {
-      style: f=>({
-        color: ZONA_PASTEL[f.properties.zona] || "#AAB4C2",   // borda
-        weight: 1.5, opacity: 0.9,
-        fillColor: ZONA_PASTEL[f.properties.zona] || "#AAB4C2",
-        fillOpacity: 0.35                                       // translúcido: dá pra ver o mapa embaixo
-      }),
-      interactive: false
-    }).addTo(PIN_LEAFLET_MAP_IH);
-    SP_ZONA_OVERLAY.eachLayer(l=>{
-      const nome = l.feature && l.feature.properties && l.feature.properties.zona;
-      if(nome) l.bindTooltip(nome, {sticky:true, className:"zona-tip"});
-    });
-  }
+  ensureZonaOverlay();
   PIN_LEAFLET_LAYER_IH = L.layerGroup().addTo(PIN_LEAFLET_MAP_IH);
+}
+// cria (ou recria) a camada de zonas pastel por cima do mapa
+function ensureZonaOverlay(){
+  if(!PIN_LEAFLET_MAP_IH || typeof L==="undefined" || typeof ZONAS_GEOJSON==="undefined") return;
+  if(SP_ZONA_OVERLAY && PIN_LEAFLET_MAP_IH.hasLayer(SP_ZONA_OVERLAY)) return;   // já está lá
+  SP_ZONA_OVERLAY = L.geoJSON(ZONAS_GEOJSON, {
+    style: f=>({
+      color: ZONA_PASTEL[f.properties.zona] || "#AAB4C2",   // borda
+      weight: 1.5, opacity: 0.9,
+      fillColor: ZONA_PASTEL[f.properties.zona] || "#AAB4C2",
+      fillOpacity: 0.38                                       // translúcido: dá pra ver o mapa embaixo
+    }),
+    interactive: false
+  }).addTo(PIN_LEAFLET_MAP_IH);
+  if(SP_ZONA_OVERLAY.bringToBack) SP_ZONA_OVERLAY.bringToBack();   // fica atrás dos alfinetes
 }
 function renderPinMapInhouse(){
   initMapaPinsInhouse();
   if(!PIN_LEAFLET_MAP_IH) return;
+  ensureZonaOverlay();   // garante que as zonas apareçam mesmo se o init tiver rodado antes do GeoJSON
   PIN_LEAFLET_LAYER_IH.clearLayers();
   const C = CONFIG.COLS;
   let plotted = 0, semCep = 0;
