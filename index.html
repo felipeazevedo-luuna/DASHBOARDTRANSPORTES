@@ -306,7 +306,7 @@
     <section class="panel" style="margin-top:0">
       <div class="panel-head">
         <h2>Densidade de pedidos por estado</h2>
-        <span class="hint">total no período filtrado · somente 3PL</span>
+        <span class="hint">total no período filtrado · 3PL + inhouse</span>
         <button type="button" class="map-expand" data-map="mapWrap" data-title="Densidade de pedidos por estado" title="Abrir em tela grande" aria-label="Abrir em tela grande">⛶</button>
       </div>
       <div class="panel-body">
@@ -381,9 +381,9 @@
 
     <section class="panel full">
       <div class="panel-head">
-        <h2>Canal de venda por região · 3PL</h2>
+        <h2>Canal de venda por região · 3PL + Inhouse</h2>
         <div style="display:flex; align-items:center; gap:10px; margin-left:auto">
-          <span class="hint">barras empilhadas · cor = região · somente 3PL</span>
+          <span class="hint">barras empilhadas · cor = região · 3PL + inhouse</span>
         </div>
       </div>
       <div class="panel-body">
@@ -667,6 +667,16 @@ const SP_ZONA_SVG = {
 };
 function isInhouse(r){
   return normalize(r[CONFIG.COLS.transportadora])==="inhouse";
+}
+// UF de um pedido: o inhouse só atende SP, então não depende do CEP nem da coluna S
+function ufDe(r){
+  if(isInhouse(r)) return "SP";
+  return toUF(r[CONFIG.COLS.uf]);
+}
+// Região de um pedido: inhouse = Sudeste (já que só atende SP)
+function regiaoDeInc(r){
+  if(isInhouse(r)) return UF2REG["SP"] || "Sudeste";
+  return regiaoDe(r);
 }
 function mxCellStyle(v,sign,cellMax){
   if(!v) return "";
@@ -1026,7 +1036,7 @@ function aggregate(){
   });
   return { byUF, byCarrier, onTime, late, diasSum, diasN, diasAll, total:FILTERED.length, totalUnique:nfSet.size+semNf };
 }
-/* ---- byUF só de um subconjunto de linhas (usado p/ mapa 3PL) ---- */
+/* ---- byUF de um conjunto de linhas (usado p/ densidade e % vendas por estado; inhouse = SP) ---- */
 // identificador único de um pedido: NF quando existe; senão CEP+data (cobre inhouse sem NF)
 function pedidoKey(r){
   const C = CONFIG.COLS;
@@ -1042,7 +1052,7 @@ function aggregateByUF(rows){
   const C = CONFIG.COLS; const byUF = {};
   const seen = {};   // uf -> Set de pedidos já contados (count unique no count/on/late)
   rows.forEach(r=>{
-    const uf = toUF(r[C.uf]); if(!uf) return;
+    const uf = ufDe(r); if(!uf) return;                 // inhouse conta como SP (não precisa de CEP)
     const st = classifyStatus(r[C.status]); const dias = num(r[C.dias]);
     const u = byUF[uf] || (byUF[uf]={count:0,on:0,late:0,dSum:0,dN:0});
     // médias de tempo usam TODAS as linhas (não deduplica) — mais dados = média melhor
@@ -1167,11 +1177,12 @@ function render(){
   document.getElementById("kpis").style.display="grid";
   document.getElementById("grid").style.display="grid";
   renderKpis(A);
-  renderMap({byUF: aggregateByUF(FILTERED.filter(r=>!isInhouse(r)))});   // densidade por estado: só 3PL
+  const stateAgg = aggregateByUF(FILTERED);                              // pedidos por estado: 3PL + inhouse (inhouse = SP)
+  renderMap({byUF: stateAgg});                                           // densidade por estado: 3PL + inhouse
   renderPinMap();                                                        // pedidos 3PL: pinos por CEP (Leaflet)
   renderMapaSP();                                                        // Grande SP: só inhouse, mapa de calor por zona
   renderPinMapInhouse();                                                  // pedidos inhouse: pinos por CEP (Leaflet)
-  renderSla(A); renderVendasUF(A); renderCanalUF(); renderCanalInhouse(); renderCarriers(A); renderCarrierTrend(); renderTempoPeriodo(); renderPareto(); renderMotivoGeo(); renderMatrix(); renderCep(); renderTransitoKpis(); renderTransito();
+  renderSla(A); renderVendasUF({byUF: stateAgg}); renderCanalUF(); renderCanalInhouse(); renderCarriers(A); renderCarrierTrend(); renderTempoPeriodo(); renderPareto(); renderMotivoGeo(); renderMatrix(); renderCep(); renderTransitoKpis(); renderTransito();
   document.getElementById("meta").innerHTML =
     '<b>'+fmtInt(A.totalUnique)+'</b> pedidos no filtro · atualizado '+new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 }
@@ -1709,7 +1720,7 @@ function renderVendasUF(A){
   });
 }
 
-/* ---- Canal de venda por estado · somente 3PL (barras empilhadas) ---- */
+/* ---- Canal de venda por região · 3PL + inhouse (barras empilhadas) ---- */
 /* ---- Utilitário: gráfico de barras empilhadas com visual refinado ----
    cats: [{label, total, segs:[{key, v, color}]}]  (segs de baixo p/ cima)
    Retorna o HTML do <svg>. Cada barra tem o TOPO arredondado (cantos suaves). */
@@ -1772,8 +1783,7 @@ function renderCanalUF(){
   const byCanal = {}, regiaoSet = new Set(); let total = 0;
   const seenKey = {};   // canal|regiao -> Set de identificadores de pedido (count unique)
   FILTERED.forEach(r=>{
-    if(isInhouse(r)) return;                                   // só 3PL
-    const regiao = regiaoDe(r); if(!regiao) return;
+    const regiao = regiaoDeInc(r); if(!regiao) return;         // 3PL + inhouse (inhouse = Sudeste, só SP)
     const canal = (r[C.canal]||"").toString().trim() || "—";
     // identificador único do pedido: NF quando existe; senão CEP+data
     let key=(r[C.nf]||"").toString().trim();
@@ -1793,7 +1803,7 @@ function renderCanalUF(){
     b[regiao] = (b[regiao]||0) + 1;
     total++;
   });
-  if(!total){ host.innerHTML=""; legend.innerHTML='<span style="color:var(--muted);font-size:12px">Sem dados de canal de venda no filtro atual (3PL).</span>'; return; }
+  if(!total){ host.innerHTML=""; legend.innerHTML='<span style="color:var(--muted);font-size:12px">Sem dados de canal de venda no filtro atual (3PL + inhouse).</span>'; return; }
 
   const regioes = [...regiaoSet].sort((a,b)=> (REGIOES_ORD.indexOf(a)-REGIOES_ORD.indexOf(b)) || a.localeCompare(b,"pt-BR"));
   const cor = {}; regioes.forEach((rg,i)=> cor[rg]=MOTIVO_PALETTE[i%MOTIVO_PALETTE.length]);
@@ -1807,7 +1817,7 @@ function renderCanalUF(){
     .sort((a,b)=> b.total-a.total);
 
   host.innerHTML = stackedBarSVG(cats, {
-    idPrefix:"canal", wide:true, aria:"Canal de venda por região - 3PL", segClass:"canal-seg",
+    idPrefix:"canal", wide:true, aria:"Canal de venda por região - 3PL + inhouse", segClass:"canal-seg",
     dataAttrs:(c,s)=>`data-canal="${esc(c.label)}" data-regiao="${esc(s.key)}" data-v="${s.v}" data-tot="${c.total}"`
   });
 
