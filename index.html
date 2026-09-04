@@ -1729,7 +1729,7 @@ function stackedBarSVG(cats, opts){
   const wide = !!opts.wide;
   const n = cats.length;
   const W = Math.max(560, n*(wide?110:60)), H = opts.H||420;
-  const ml=44, mr=18, mt=30, mb=42, pw=W-ml-mr, ph=H-mt-mb;
+  const ml=44, mr=(opts.allLabels?34:18), mt=30, mb=42, pw=W-ml-mr, ph=H-mt-mb;
   const slot = pw/n, barW = Math.min(slot*0.56, wide?76:46), radius = Math.min(10, barW/2);
   const maxTotal = Math.max(1, ...cats.map(c=>c.total));
   const niceMax = Math.max(5, Math.ceil(maxTotal/5)*5);
@@ -1756,10 +1756,12 @@ function stackedBarSVG(cats, opts){
     defs += `<clipPath id="${clipId}"><rect x="${bx.toFixed(1)}" y="${topY}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="${radius}" ry="${radius}"/></clipPath>`;
     let acc = 0;
     let segsSvg = "";
+    const outside = [];   // rótulos de segmentos finos que não cabem dentro → vão pra direita
     segs.forEach(s=>{
-      const y0=y(acc), y1=y(acc+s.v), h=y0-y1, tall=h>=14;
+      const y0=y(acc), y1=y(acc+s.v), h=y0-y1, mid=(y0+y1)/2;
       segsSvg += `<rect class="${opts.segClass||'stk-seg'}" ${opts.dataAttrs?opts.dataAttrs(c,s):""} x="${bx.toFixed(1)}" y="${y1.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${s.color}"></rect>`;
-      if(tall) segsSvg += `<text x="${cx(k).toFixed(1)}" y="${((y0+y1)/2+3.7).toFixed(1)}" font-size="11" font-weight="600" fill="#fff" text-anchor="middle" font-family="Inter,sans-serif" style="pointer-events:none">${fmtInt(s.v)}</text>`;
+      if(h>=14) segsSvg += `<text x="${cx(k).toFixed(1)}" y="${(mid+3.7).toFixed(1)}" font-size="11" font-weight="600" fill="#fff" text-anchor="middle" font-family="Inter,sans-serif" style="pointer-events:none">${fmtInt(s.v)}</text>`;
+      else if(opts.allLabels) outside.push({v:s.v, color:s.color, segMid:mid, y:mid});
       acc += s.v;
     });
     // gap fino entre segmentos: desenha as fatias, recorta no formato arredondado, e sobrepõe linhas brancas finas
@@ -1769,6 +1771,18 @@ function stackedBarSVG(cats, opts){
     body += `</g>`;
     // total acima
     body += `<text x="${cx(k).toFixed(1)}" y="${(y(c.total)-9).toFixed(1)}" font-size="12" font-weight="700" fill="#0E1B2E" text-anchor="middle" font-family="'Space Grotesk',sans-serif">${fmtInt(c.total)}</text>`;
+    // rótulos de dados dos segmentos finos: à direita da barra, com linha-guia e sem sobreposição
+    if(outside.length){
+      const lx = bx+barW+6, top = mt+6, bottom = mt+ph, gap = 13;
+      outside.sort((a,b)=> a.segMid-b.segMid);
+      for(let i=1;i<outside.length;i++){ if(outside[i].y - outside[i-1].y < gap) outside[i].y = outside[i-1].y + gap; }
+      for(let i=outside.length-1;i>=0;i--){ if(outside[i].y > bottom){ outside[i].y = bottom; if(i>0 && outside[i].y - outside[i-1].y < gap) outside[i-1].y = outside[i].y - gap; } }
+      if(outside[0].y < top) outside[0].y = top;
+      outside.forEach(o=>{
+        body += `<line x1="${(bx+barW).toFixed(1)}" y1="${o.segMid.toFixed(1)}" x2="${lx.toFixed(1)}" y2="${o.y.toFixed(1)}" stroke="${o.color}" stroke-width="1" opacity="0.55"/>`;
+        body += `<text x="${(lx+3).toFixed(1)}" y="${(o.y+3.5).toFixed(1)}" font-size="10.5" font-weight="700" fill="${o.color}" text-anchor="start" font-family="'IBM Plex Mono',monospace">${fmtInt(o.v)}</text>`;
+      });
+    }
     // rótulo do eixo
     body += `<text x="${cx(k).toFixed(1)}" y="${(mt+ph+17).toFixed(1)}" font-size="11" font-weight="600" fill="#5B6B82" text-anchor="middle" font-family="Inter,sans-serif">${esc(c.label)}</text>`;
   });
@@ -1785,13 +1799,8 @@ function renderCanalUF(){
   FILTERED.forEach(r=>{
     const regiao = regiaoDeInc(r); if(!regiao) return;         // 3PL + inhouse (inhouse = Sudeste, só SP)
     const canal = (r[C.canal]||"").toString().trim() || "—";
-    // identificador único do pedido: NF quando existe; senão CEP+data
-    let key=(r[C.nf]||"").toString().trim();
-    if(!key){
-      const cep=(r[C.cep]||"").toString().trim();
-      const dt=(r[C.dataCriacao]||r[C.previsao]||"").toString().trim();
-      if(cep && dt) key="CEP:"+cep+"|"+dt;
-    }
+    // identificador único do pedido: mesma regra do resto do painel (docname G → NF → CEP+data)
+    const key = pedidoKey(r);
     const dedupKey = canal+"|"+regiao;
     if(key){
       if(!seenKey[dedupKey]) seenKey[dedupKey]=new Set();
@@ -1811,13 +1820,14 @@ function renderCanalUF(){
   const cats = Object.keys(byCanal)
     .map(canal=>{
       const total = Object.values(byCanal[canal]).reduce((s,v)=>s+v,0);
-      const segs = regioes.map(rg=>({key:rg, v:byCanal[canal][rg]||0, color:cor[rg]}));
+      const segs = regioes.map(rg=>({key:rg, v:byCanal[canal][rg]||0, color:cor[rg]}))
+                          .sort((a,b)=> b.v-a.v);   // maior volume na base de cada coluna
       return {label:canal, total, segs};
     })
     .sort((a,b)=> b.total-a.total);
 
   host.innerHTML = stackedBarSVG(cats, {
-    idPrefix:"canal", wide:true, aria:"Canal de venda por região - 3PL + inhouse", segClass:"canal-seg",
+    idPrefix:"canal", wide:true, allLabels:true, aria:"Canal de venda por região - 3PL + inhouse", segClass:"canal-seg",
     dataAttrs:(c,s)=>`data-canal="${esc(c.label)}" data-regiao="${esc(s.key)}" data-v="${s.v}" data-tot="${c.total}"`
   });
 
@@ -1873,13 +1883,8 @@ function renderCanalInhouse(){
     if(!isInhouse(r)) return;                                  // só inhouse
     const p = periodoKeyInhouse(r); if(!p) return;
     const canal = (r[C.canal]||"").toString().trim() || "—";
-    // identificador único do pedido: NF quando existe; senão CEP+data (inhouse normalmente não tem NF)
-    let key=(r[C.nf]||"").toString().trim();
-    if(!key){
-      const cep=(r[C.cep]||"").toString().trim();
-      const dt=(r[C.dataCriacao]||r[C.previsao]||"").toString().trim();
-      if(cep && dt) key="CEP:"+cep+"|"+dt;
-    }
+    // identificador único do pedido: mesma regra do resto do painel (docname G → NF → CEP+data)
+    const key = pedidoKey(r);
     const dedupKey = p.key+"|"+canal;
     if(key){
       if(!seenKey[dedupKey]) seenKey[dedupKey]=new Set();
