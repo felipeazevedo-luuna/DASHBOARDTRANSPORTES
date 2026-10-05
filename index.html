@@ -761,7 +761,8 @@ function fmtDays(n){ return isFinite(n) ? Math.round(n).toLocaleString("pt-BR") 
 function median(arr){ if(!arr||!arr.length) return NaN; const s=[...arr].sort((a,b)=>a-b); const m=s.length>>1; return s.length%2 ? s[m] : (s[m-1]+s[m])/2; }
 function esc(s){ return (s||"").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function toISO(d){ return d ? d.toISOString().slice(0,10) : ""; }
-function slaClass(p){ return !isFinite(p) ? "" : p>=95 ? "good" : p>=90 ? "warn" : "bad"; }
+// cor segue o valor EXIBIDO: arredonda nas mesmas casas do rótulo (94,6% mostrado como 95% = meta batida)
+function slaClass(p, casas=1){ if(!isFinite(p)) return ""; const f=10**casas, v=Math.round(p*f)/f; return v>=SLA_META ? "good" : v>=90 ? "warn" : "bad"; }
 function lerpColor(a,b,t){
   const pa=a.match(/\w\w/g).map(h=>parseInt(h,16)), pb=b.match(/\w\w/g).map(h=>parseInt(h,16));
   const c=pa.map((v,i)=>Math.round(v+(pb[i]-v)*t));
@@ -1652,7 +1653,7 @@ function renderSla(A){
   }
   // colunas
   rows.forEach((r,k)=>{
-    const c=slaClass(r.pct), col=COL[c]||"#8A97A8", v=isFinite(r.pct)?r.pct:0;
+    const c=slaClass(r.pct, 0), col=COL[c]||"#8A97A8", v=isFinite(r.pct)?r.pct:0;
     const by=y(v), bh=(mt+ph)-by, bx=cx(k)-barW/2, tall=bh>=24;
     const dataAttr = byRegiao ? "" : ` data-uf="${r.key}"`;
     svg+=`<rect class="sla-bar"${dataAttr} x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${col}"><title>${esc(r.key)} · SLA ${fmtPct(r.pct)} · ${fmtInt(r.count)} pedidos</title></rect>`;
