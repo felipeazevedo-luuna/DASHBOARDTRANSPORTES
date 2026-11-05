@@ -2,14 +2,9 @@
   # site estático: sem etapa de build; serve a raiz do repo
   publish = "."
   command = ""
+  # pasta das funções serverless
   functions = "netlify/functions"
 
 [build.environment]
-  # Node 18+ tem 'fetch' nativo, usado pela função
+  # Node 18+ garante 'fetch' nativo usado pela função
   NODE_VERSION = "18"
-
-# O painel chama /api/dados?pagina=... (mais curto que o caminho da função)
-[[redirects]]
-  from = "/api/dados"
-  to = "/.netlify/functions/dados"
-  status = 200
