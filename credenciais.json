@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "bot-zebrands",
+  "private_key_id": "d300f9e403af626e532e491cecf0eb5262e31c84",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC2pcttJl9d9+95\nVY/pHXaQls1dbFxayCuh7V5GyAMlFzs5gHMutvl2XXUXxsyOmOccOyYyNlUz7WQ+\nkiYs1r36fFYsfUke4zZi5TlFtgKRzCgMbIb6zBBZyIX401EM56n/fEv5k3YOHaKU\nfxW56ulq6212jQzKMpO9Yeax29F1CcoMVArDtg1mf83uS0aXYGgEpX/KIaqf9gs+\nqOfQi2NctGGhgGeRObzWOeHUlJEPQyPOhMp9f0f70Qbsb0WQ5d/YHf1NvJGUgF5k\nR6zDJhCI2cV/KR5rzzcP2c2kqoc1qjh+/2pthmO4jz+QQTv7A2IbiIEjfWQwtIPd\nfORj2ZdhAgMBAAECggEAAIhBlbMPAWuRMONxr/5+sRf/aERTyas7MO1fwuspCgJl\nXF/3w8OiYowdDkxyUpZ9IJcSH9sFYjBV48gpZ5yYRp9gBFzwARAO337TgmjjaX/J\nZK2t2ngRsAzmZ/yOIT4+F48r1b4eJfQRkQ/hgpoM4br15xfLEuy1yYGc8P++hL/t\nItH9PVRPXGtpK6LUApcoZna2FNwD2c7q05vSMO3gyW5Gazwh37LFMGFHmBCpw2tD\n2VzXUb+r4G02V+hs8JhMlrqCVIwEXZPKs4EneP2WeP2L7JCw1cEtekGxFFDWFG+k\nm76y7pHF9UfeHB8zU+HxE9wUoBjkonJHFQqx6eBawQKBgQDasphIO7RAA9+oYurl\ng7noPn16k2+0jFdIvhtzeqXAUXoSLE0vZNxfMJPtI+VKP5p7UGObjlqD6rwIsjrm\nC0bZn5sZtJgen0dn5n0lCCeOsRBexuA7CDva6aTzRm3Bhky6WiC7ra4SGn9yOSyR\nOjfz5PJpU1ZXhTQtzk3Z5siKTQKBgQDVzRS6TFEX/43TIsVBhwu6k+/iW/DTQGBM\n8Pc5ZrsSC4n+KcONqd8sN4YHtDrcaT8+hJBXaI8Vuqyq06rg8Ksa3lwK0RS3rkG8\ndGr33xr7ZAJQcH7WVWsSXjMdYXOzKHuHD0y+ZW5fgGKEmhThExhB9JZIrA3IYKHt\nauVgP1yjZQKBgQCFZaCblsdYsMQw6r1K5/Fy5wMUzG+7mkr3VPZblvkZeNlT0m/2\nM7hz26avZFDM3ET3aM6JKOivRHQTfduNTF2YCtHJeS28p/0fNCkreHDgicJpfTdy\n6o/P9OonddMm0ytkE+uZbtQZuM36N0OnBfLxMrpmYm3tDpQISKmV+z5hlQKBgQC0\nwDLb5ZVRgp32eBjn8zH5RQSzDCOnlW9U3QtFnhJdiR/anphS9eBVU4Oek8KHgPsU\n8aHOI/mD11QO//AhR5aAmqiaBHVNbKbqmkms0RPQoJZMRy8UKRbian0wQ6k7N+hn\nIIozFTGgz7t6e4FXX3tMl2lOexcT5o4/V/YfzrGU+QKBgDgSD4F0HkCrwHhPQs/v\ngbf0QucSJoi91J4q+u8bnwCz446G2fS1Rbod+lo2GFq99qrmrl1h+9CCUEluukyN\nJQ3EmutgxHEeq9WcXYzitULEv6D2M3qxXFuUdvyQpLQGf00I/bj3YrKNYZ3KmF4x\nAu2G8suHAlvTYLte3CKnRYd9\n-----END PRIVATE KEY-----\n",
+  "client_email": "bot-zebrands-drive@bot-zebrands.iam.gserviceaccount.com",
+  "client_id": "118391932549156061462",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/bot-zebrands-drive%40bot-zebrands.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
